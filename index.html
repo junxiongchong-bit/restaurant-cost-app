@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Restaurant Cost Control</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.4rem">🍽️</span>
+  <div><h1>Restaurant Cost Control</h1><span>WAC · Yield · Recipe Costing · Reporting</span></div>
+  <div style="margin-left:auto">
+    <button class="btn btn-ghost btn-sm" onclick="openSettingsModal()" title="Settings">⚙ Settings</button>
+  </div>
+</header>
+
+<nav>
+  <button class="active" onclick="goPage('dashboard',this)">📊 Dashboard</button>
+  <button onclick="goPage('suppliers',this)">🏢 Suppliers</button>
+  <button onclick="goPage('ingredients',this)">🥦 Ingredients</button>
+  <button onclick="goPage('recipes',this)">📋 Recipes</button>
+  <button onclick="goPage('menu',this)">🍴 Menu</button>
+  <button onclick="goPage('sales',this)">💰 Sales</button>
+  <button onclick="goPage('reports',this)">📈 Reports</button>
+  <button onclick="goPage('import',this)">📁 Import</button>
+</nav>
+
+<main>
+
+  <!-- DASHBOARD -->
+  <div id="page-dashboard" class="page active">
+    <h2>Dashboard</h2>
+    <div class="stat-grid" id="dash-stats"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="card"><div class="muted" style="margin-bottom:10px">MENU ITEMS BY COST %</div><div id="dash-items"></div></div>
+      <div class="card"><div class="muted" style="margin-bottom:10px">OVERVIEW</div><div id="dash-overview"></div></div>
+    </div>
+  </div>
+
+  <!-- SUPPLIERS -->
+  <div id="page-suppliers" class="page">
+    <div class="fb"><h2>Suppliers</h2><button class="btn btn-primary" onclick="openSupModal()">+ Add Supplier</button></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><thead><tr><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th><th>Notes</th><th></th></tr></thead>
+      <tbody id="sup-table"></tbody></table>
+    </div>
+  </div>
+
+  <!-- INGREDIENTS -->
+  <div id="page-ingredients" class="page">
+    <div class="fb"><h2>Ingredients <span class="wac-badge">WAC</span></h2><button class="btn btn-primary" onclick="openIngModal()">+ Add Ingredient</button></div>
+    <div class="search-wrap"><input id="ing-search" placeholder="Search…" oninput="renderIngredients()"></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><thead><tr><th>Name</th><th>Category</th><th>Yield %</th><th>WAC/RU</th><th>Effective Cost/RU</th><th>Recipe Unit</th><th>Purchases</th><th></th></tr></thead>
+      <tbody id="ing-table"></tbody></table>
+    </div>
+  </div>
+
+  <!-- RECIPES -->
+  <div id="page-recipes" class="page">
+    <div class="fb"><h2>Recipes</h2><button class="btn btn-primary" onclick="openRecipeModal()">+ New Recipe</button></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><thead><tr><th>Name</th><th>Type</th><th>Lines</th><th>Raw WAC Cost</th><th>Yield-adj Cost</th><th></th></tr></thead>
+      <tbody id="recipe-table"></tbody></table>
+    </div>
+  </div>
+
+  <!-- MENU -->
+  <div id="page-menu" class="page">
+    <div class="fb"><h2>Menu Items</h2><button class="btn btn-primary" onclick="openMenuModal()">+ Add Item</button></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><thead><tr><th>Item</th><th>Recipe</th><th>Sell $</th><th>Food Cost</th><th>Cost %</th><th>Gross Profit</th><th></th></tr></thead>
+      <tbody id="menu-table"></tbody></table>
+    </div>
+  </div>
+
+  <!-- SALES -->
+  <div id="page-sales" class="page">
+    <div class="fb"><h2>Sales</h2>
+      <div class="flex">
+        <button class="btn btn-ghost" onclick="exportSalesCSV()">⬇ Export CSV</button>
+        <button class="btn btn-primary" onclick="openSalesModal()">+ Record Sale</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><thead><tr><th>Date</th><th>Item</th><th>Qty</th><th>Revenue</th><th>Cost (snap)</th><th>Cost %</th><th>Profit</th><th></th></tr></thead>
+      <tbody id="sales-table"></tbody></table>
+    </div>
+  </div>
+
+  <!-- REPORTS -->
+  <div id="page-reports" class="page">
+    <h2>Reports</h2>
+    <div class="card">
+      <div class="flex" style="gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div class="rpt-tabs">
+          <button class="rpt-tab active" onclick="setRptPeriod('day',this)">Daily</button>
+          <button class="rpt-tab" onclick="setRptPeriod('month',this)">Monthly</button>
+          <button class="rpt-tab" onclick="setRptPeriod('year',this)">Yearly</button>
+          <button class="rpt-tab" onclick="setRptPeriod('range',this)">Custom</button>
+        </div>
+        <div id="rpt-date-inputs" class="flex"></div>
+      </div>
+      <div class="stat-grid" id="rpt-stats"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div>
+          <div class="muted" style="margin-bottom:8px">SALES BREAKDOWN</div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <table><thead><tr><th>Item</th><th>Qty</th><th>Revenue</th><th>Cost</th><th>Cost %</th><th>Profit</th></tr></thead>
+            <tbody id="rpt-sales-table"></tbody></table>
+          </div>
+        </div>
+        <div>
+          <div class="muted" style="margin-bottom:8px">PURCHASES (from imports)</div>
+          <div class="card" style="padding:0;overflow:hidden">
+            <table><thead><tr><th>Date</th><th>Supplier</th><th>Items</th><th>Total $</th></tr></thead>
+            <tbody id="rpt-po-table"></tbody></table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- IMPORT -->
+  <div id="page-import" class="page">
+    <h2>AI Import</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card">
+        <div class="muted" style="margin-bottom:8px">SUPPLIER INVOICE → INGREDIENTS</div>
+        <div class="upload-zone" onclick="document.getElementById('inv-file').click()">
+          <input type="file" id="inv-file" accept=".pdf,.csv" onchange="startInvoiceImport(this)">
+          <div style="font-size:1.8rem">📄</div>
+          <p style="color:var(--muted);font-size:.82rem;margin-top:6px">Upload PDF or CSV</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="muted" style="margin-bottom:8px">SQUARE SALES EXPORT</div>
+        <div class="upload-zone" onclick="document.getElementById('sales-file').click()">
+          <input type="file" id="sales-file" accept=".pdf,.csv" onchange="startSalesImport(this)">
+          <div style="font-size:1.8rem">💳</div>
+          <p style="color:var(--muted);font-size:.82rem;margin-top:6px">Upload PDF or CSV</p>
+        </div>
+      </div>
+    </div>
+    <div class="fb"><div class="muted">IMPORT HISTORY</div><button class="btn btn-ghost btn-sm" onclick="renderImportLog()">↻ Refresh</button></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table><thead><tr><th>Date</th><th>Supplier</th><th>Filename</th><th>Type</th><th>Matched</th><th>Total $</th><th>Status</th><th></th></tr></thead>
+      <tbody id="import-log-table"></tbody></table>
+    </div>
+  </div>
+
+</main>
+
+<!-- ═══════════════════ MODALS ═══════════════════ -->
+
+<!-- Supplier -->
+<div class="modal-overlay" id="modal-sup">
+  <div class="modal" style="max-width:560px">
+    <h3 id="sup-modal-title">Add Supplier</h3>
+    <div class="form-row c2">
+      <div><label>Name *</label><input id="sup-name"></div>
+      <div><label>Contact Person</label><input id="sup-contact"></div>
+    </div>
+    <div class="form-row c2">
+      <div><label>Phone</label><input id="sup-phone"></div>
+      <div><label>Email</label><input id="sup-email"></div>
+    </div>
+    <div><label>Address / Notes</label><textarea id="sup-notes" rows="2"></textarea></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-sup')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSupplier()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ingredient -->
+<div class="modal-overlay" id="modal-ing">
+  <div class="modal" style="max-width:620px">
+    <h3 id="ing-modal-title">Add Ingredient</h3>
+    <div class="form-row c3">
+      <div><label>Name *</label><input id="ing-name" placeholder="e.g. Ham"></div>
+      <div><label>Category</label><input id="ing-cat" placeholder="e.g. Meat"></div>
+      <div><label>Default Supplier</label><select id="ing-sup"></select></div>
+    </div>
+    <div class="form-row c3">
+      <div><label>Recipe Base Unit</label>
+        <select id="ing-ru"><option value="g">g</option><option value="ml">ml</option><option value="each">each</option></select>
+      </div>
+      <div><label>Yield % <span class="muted">(usable portion)</span></label>
+        <input id="ing-yield" type="number" min="1" max="100" value="100" oninput="calcIngWAC()">
+      </div>
+      <div></div>
+    </div>
+    <hr class="divider">
+    <p style="font-size:.76rem;color:var(--accent2);margin-bottom:8px">📦 First purchase (sets initial WAC) — optional</p>
+    <div class="form-row c3">
+      <div><label>Buy Unit</label>
+        <select id="ing-buy-unit" onchange="calcIngWAC()">
+          <option>carton</option><option>case</option><option>bag</option><option>box</option>
+          <option selected>each</option><option>dozen</option><option>kg</option><option>L</option>
+          <option>lb</option><option>g</option><option>ml</option>
+        </select>
+      </div>
+      <div><label>Qty</label><input id="ing-buy-qty" type="number" step="0.01" value="1" oninput="calcIngWAC()"></div>
+      <div><label>Total Invoice Price ($)</label><input id="ing-buy-price" type="number" step="0.01" oninput="calcIngWAC()"></div>
+    </div>
+    <div class="form-row c3">
+      <div><label>Pack Count</label><input id="ing-pack-count" type="number" placeholder="e.g. 6" oninput="calcIngWAC()"></div>
+      <div><label>Pack Size</label><input id="ing-pack-size" type="number" step="0.001" oninput="calcIngWAC()"></div>
+      <div><label>Pack Unit</label>
+        <select id="ing-pack-unit" onchange="calcIngWAC()">
+          <option value="g">g</option><option value="ml">ml</option><option value="kg">kg</option><option value="L">L</option>
+        </select>
+      </div>
+    </div>
+    <div id="ing-wac-preview" class="cb" style="display:none"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-ing')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveIngredient()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ingredient Detail -->
+<div class="modal-overlay" id="modal-ing-detail">
+  <div class="modal" style="max-width:820px">
+    <h3 id="ing-detail-title">Ingredient Detail</h3>
+    <div id="ing-detail-top"></div>
+    <div class="form-row c2" style="margin-top:10px">
+      <div><label>Yield % (edit)</label><input id="detail-yield" type="number" min="1" max="100" oninput="previewYield()"></div>
+      <div style="display:flex;align-items:flex-end"><button class="btn btn-ghost btn-sm" onclick="saveYield()">Update Yield</button></div>
+    </div>
+    <div id="detail-yield-preview" class="cb" style="display:none;margin-bottom:8px"></div>
+    <hr class="divider">
+    <div class="muted" style="margin-bottom:8px">PURCHASE HISTORY</div>
+    <div id="ing-purchases" style="overflow-x:auto;max-height:260px;overflow-y:auto"></div>
+    <hr class="divider">
+    <p style="font-size:.76rem;color:var(--accent2);margin-bottom:8px">+ Add New Purchase</p>
+    <div class="form-row c4">
+      <div><label>Date</label><input id="pur-date" type="date"></div>
+      <div><label>Supplier</label><select id="pur-sup"></select></div>
+      <div><label>Buy Unit</label>
+        <select id="pur-buy-unit" onchange="calcPurWAC()">
+          <option>carton</option><option>case</option><option>bag</option><option>box</option>
+          <option>each</option><option>dozen</option><option>kg</option><option>L</option>
+          <option>lb</option><option>g</option><option>ml</option>
+        </select>
+      </div>
+      <div><label>Qty</label><input id="pur-qty" type="number" step="0.01" value="1" oninput="calcPurWAC()"></div>
+    </div>
+    <div class="form-row c4">
+      <div><label>Pack Count</label><input id="pur-pack-count" type="number" placeholder="—" oninput="calcPurWAC()"></div>
+      <div><label>Pack Size</label><input id="pur-pack-size" type="number" step="0.001" placeholder="—" oninput="calcPurWAC()"></div>
+      <div><label>Pack Unit</label>
+        <select id="pur-pack-unit" onchange="calcPurWAC()">
+          <option value="g">g</option><option value="ml">ml</option><option value="kg">kg</option><option value="L">L</option>
+        </select>
+      </div>
+      <div><label>Total Price ($)</label><input id="pur-price" type="number" step="0.01" oninput="calcPurWAC()"></div>
+    </div>
+    <div id="pur-wac-preview" class="cb" style="display:none"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-ing-detail')">Close</button>
+      <button class="btn btn-primary" onclick="addPurchase()">Add Purchase & Update WAC</button>
+    </div>
+  </div>
+</div>
+
+<!-- Recipe -->
+<div class="modal-overlay" id="modal-recipe">
+  <div class="modal" style="max-width:820px">
+    <h3 id="recipe-modal-title">Create Recipe</h3>
+    <div class="form-row c3">
+      <div style="grid-column:span 2"><label>Name *</label><input id="recipe-name"></div>
+      <div><label>Type</label>
+        <select id="recipe-type">
+          <option value="base">Sub-recipe / Base</option>
+          <option value="menu">Menu Recipe</option>
+        </select>
+      </div>
+    </div>
+    <div><label>Yield description</label><input id="recipe-yield" placeholder="e.g. Makes 4 portions"></div>
+    <div style="margin-top:14px">
+      <div class="fb" style="margin-bottom:6px">
+        <div class="muted">LINES (qty in recipe units)</div>
+        <button class="btn btn-ghost btn-sm" onclick="addRL()">+ Add Line</button>
+      </div>
+      <div id="recipe-lines"></div>
+    </div>
+    <div class="cb" id="recipe-cost-preview" style="margin-top:10px"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-recipe')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveRecipe()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Menu -->
+<div class="modal-overlay" id="modal-menu">
+  <div class="modal" style="max-width:560px">
+    <h3 id="menu-modal-title">Add Menu Item</h3>
+    <div class="form-row c2">
+      <div><label>Name *</label><input id="menu-name"></div>
+      <div><label>Category</label><input id="menu-cat"></div>
+    </div>
+    <div class="form-row c2">
+      <div><label>Linked Recipe *</label>
+        <select id="menu-recipe" onchange="updateMenuPreview()"><option value="">— Select —</option></select>
+      </div>
+      <div><label>Sell Price ($) *</label><input id="menu-price" type="number" step="0.01" oninput="updateMenuPreview()"></div>
+    </div>
+    <div id="menu-preview" class="cb" style="display:none"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-menu')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveMenuItem()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sales -->
+<div class="modal-overlay" id="modal-sales">
+  <div class="modal" style="max-width:520px">
+    <h3>Record Sale</h3>
+    <div class="form-row c2">
+      <div><label>Date</label><input id="sales-date" type="date"></div>
+      <div><label>Menu Item</label>
+        <select id="sales-item" onchange="updateSalesPreview()"><option value="">— Select —</option></select>
+      </div>
+    </div>
+    <div class="form-row c2">
+      <div><label>Qty Sold</label><input id="sales-qty" type="number" min="1" oninput="updateSalesPreview()"></div>
+      <div><label>Revenue override ($) <span class="muted">optional</span></label>
+        <input id="sales-rev" type="number" step="0.01" oninput="updateSalesPreview()">
+      </div>
+    </div>
+    <div id="sales-preview" class="cb" style="display:none"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-sales')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSale()">Save & Snapshot Cost</button>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice Wizard -->
+<div class="modal-overlay" id="modal-invoice-wizard">
+  <div class="modal" style="max-width:980px">
+    <h3 id="wizard-title">Invoice Import</h3>
+    <div class="step-indicator" id="wizard-steps">
+      <div class="step active" id="ws1">1. Select Supplier</div>
+      <div class="step" id="ws2">2. AI Extraction</div>
+      <div class="step" id="ws3">3. Review & Match</div>
+      <div class="step" id="ws4">4. Confirm & Import</div>
+    </div>
+    <div id="wizard-content"></div>
+    <div class="modal-footer" id="wizard-footer"></div>
+  </div>
+</div>
+
+<!-- Sales AI -->
+<div class="modal-overlay" id="modal-sales-ai">
+  <div class="modal" style="max-width:680px">
+    <h3>Review Square Sales Import</h3>
+    <div id="sales-ai-status" class="ai-box ai-thinking" style="display:none"></div>
+    <div id="sales-ai-content"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-sales-ai')">Cancel</button>
+      <button class="btn btn-success" id="sales-ai-approve" onclick="approveSalesImport()" style="display:none">✓ Approve & Import</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Settings -->
+<div class="modal-overlay" id="modal-settings">
+  <div class="modal" style="max-width:480px">
+    <h3>⚙ Settings</h3>
+
+    <div style="margin-bottom:16px">
+      <label>Anthropic API Key <span class="muted">(for AI Invoice scanning)</span></label>
+      <input id="settings-api-key" type="password" placeholder="sk-ant-…" autocomplete="off">
+      <div class="muted" style="margin-top:4px">Stored locally in your browser only. Never shared.</div>
+    </div>
+
+    <hr class="divider">
+
+    <div style="margin-bottom:16px">
+      <label>Delivery Platform Commission Rate <span class="muted">(%)</span></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
+        <div>
+          <input id="settings-commission" type="number" min="0" max="100" step="0.1" placeholder="e.g. 37">
+          <div class="muted" style="margin-top:4px">Applied to all Doshii channel sales</div>
+        </div>
+        <div>
+          <label>Delivery Channel Name</label>
+          <input id="settings-channel" placeholder="e.g. Doshii">
+          <div class="muted" style="margin-top:4px">Must match the Channel column in Square CSV</div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div style="margin-bottom:14px">
+      <label>Data Management</label>
+      <div class="flex" style="gap:8px;margin-top:6px">
+        <button class="btn btn-ghost btn-sm" onclick="exportData()">⬇ Export Backup</button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">⬆ Import Backup
+          <input type="file" accept=".json" style="display:none" onchange="importData(this)">
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-settings')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Scripts: db first, then modules, then app (which calls init) -->
+<script src="data/db.js"></script>
+<script src="js/ingredients.js"></script>
+<script src="js/recipes.js"></script>
+<script src="js/sales.js"></script>
+<script src="js/reports.js"></script>
+<script src="js/import.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
