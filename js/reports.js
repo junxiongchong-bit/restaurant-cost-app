@@ -23,13 +23,15 @@ function getDateRange() {
 function renderReports() {
   const di = document.getElementById('rpt-date-inputs');
   if(rptPeriod === 'range') {
-    const n = todayStr();
-    di.innerHTML = `<div class="flex">
-      <label style="color:var(--muted);font-size:.78rem;margin:0 4px 0 0">From</label>
-      <input type="date" id="rpt-from" value="${n}" onchange="renderReports()" style="width:140px">
-      <label style="color:var(--muted);font-size:.78rem;margin:0 4px">To</label>
-      <input type="date" id="rpt-to" value="${n}" onchange="renderReports()" style="width:140px">
-    </div>`;
+    if (!document.getElementById('rpt-from')) {
+      const n = todayStr();
+      di.innerHTML = `<div class="flex">
+        <label style="color:var(--muted);font-size:.78rem;margin:0 4px 0 0">From</label>
+        <input type="date" id="rpt-from" value="${n}" onchange="renderReports()" style="width:140px">
+        <label style="color:var(--muted);font-size:.78rem;margin:0 4px">To</label>
+        <input type="date" id="rpt-to" value="${n}" onchange="renderReports()" style="width:140px">
+      </div>`;
+    }
   } else {
     di.innerHTML = '';
   }
@@ -70,4 +72,65 @@ function renderReports() {
   document.getElementById('rpt-po-table').innerHTML = poR.length
     ? poR.map(l => `<tr><td>${l.date}</td><td>${l.supplierName||'—'}</td><td>${l.matchedCount??l.itemCount}</td><td>$${fmt(l.totalValue)}</td></tr>`).join('')
     : '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px">No POs in period.</td></tr>';
+
+  renderSundryAnalysis();
+}
+
+function renderSundryAnalysis() {
+  const { from, to } = getDateRange();
+  const salesR = db.sales.filter(s => s.date >= from && s.date <= to);
+
+  // Theoretical sundry: group by recipe
+  const theoryMap = {};
+  let totalTheory = 0;
+  salesR.forEach(s => {
+    const mi  = db.menuItems.find(m => m.id === s.itemId); if (!mi) return;
+    const rec = db.recipes.find(r => r.id === mi.recipeId); if (!rec || !(rec.sundryPct > 0)) return;
+    const recipeCost = calcRecipeCost(rec.lines, true);
+    const sundryCost = recipeCost * (rec.sundryPct / 100) * s.qty;
+    totalTheory += sundryCost;
+    if (!theoryMap[rec.id]) theoryMap[rec.id] = { name: rec.name, qty: 0, pct: rec.sundryPct, cost: 0 };
+    theoryMap[rec.id].qty  += s.qty;
+    theoryMap[rec.id].cost += sundryCost;
+  });
+
+  // Actual sundry: purchases of "Sundry" category ingredients in period
+  const sundryIngs = (db.ingredients || []).filter(i => (i.category || '').toLowerCase() === 'sundry');
+  let totalActual = 0;
+  const actualRows = sundryIngs.map(ing => {
+    const purs  = (ing.purchases || []).filter(p => !p.obsolete && p.date >= from && p.date <= to);
+    const spend = purs.reduce((s, p) => s + (p.totalPrice || 0), 0);
+    totalActual += spend;
+    return { name: ing.name, count: purs.length, spend };
+  }).filter(r => r.count > 0);
+
+  const variance = totalActual - totalTheory;
+  const absPct   = totalTheory > 0 ? Math.abs(variance / totalTheory * 100) : null;
+  const varCol   = variance === 0 ? 'var(--muted)'
+                 : variance > 0   ? 'var(--danger)'
+                 :                  'var(--accent2)';
+  const hint     = variance > 0 ? '↑ Raise your sundry %'
+                 : variance < 0 ? '↓ Lower your sundry %'
+                 : '✓ On target';
+
+  document.getElementById('rpt-sundry-stats').innerHTML = `
+    <div class="stat"><div class="stat-val" style="color:var(--warn)">$${fmt(totalTheory)}</div><div class="stat-label">Theoretical Sundry</div></div>
+    <div class="stat"><div class="stat-val" style="color:var(--danger)">$${fmt(totalActual)}</div><div class="stat-label">Actual Sundry Spend</div></div>
+    <div class="stat"><div class="stat-val" style="color:${varCol}">${variance >= 0 ? '+' : ''}$${fmt(variance)}</div>
+      <div class="stat-label">Variance${absPct !== null ? ' (' + fmt(absPct,1) + '%)' : ''}</div></div>
+    <div class="stat"><div class="stat-val" style="color:${varCol};font-size:.95rem">${hint}</div><div class="stat-label">Calibration</div></div>`;
+
+  const theoryRows = Object.values(theoryMap).sort((a, b) => b.cost - a.cost);
+  document.getElementById('rpt-sundry-theory').innerHTML = theoryRows.length
+    ? theoryRows.map(r =>
+        `<tr><td>${r.name}</td><td>${r.qty}</td>
+         <td><span class="badge bw">${fmt(r.pct,1)}%</span></td>
+         <td style="color:var(--warn)">$${fmt(r.cost)}</td></tr>`).join('')
+    : '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:12px">No recipes with Sundry % set.</td></tr>';
+
+  document.getElementById('rpt-sundry-actual').innerHTML = actualRows.length
+    ? actualRows.map(r =>
+        `<tr><td>${r.name}</td><td>${r.count}</td>
+         <td style="color:var(--danger)">$${fmt(r.spend)}</td></tr>`).join('')
+    : '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:12px">No Sundry purchases in period.<br><span style="font-size:.76rem">Set ingredient category to "Sundry" to track actual spend here.</span></td></tr>';
 }

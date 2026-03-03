@@ -1,15 +1,112 @@
 // ── DEV MODE ────────────────────────────────────────────────────────────────
-// Set to true during development to skip real API calls (saves cost!)
-// Set to false when ready to go live with real invoice scanning
 let DEV_MODE = true;
 
 const DEV_INVOICE_DATA = [
   { name: "Chicken Breast", buy_unit: "kg", buy_qty: 5, total_price: 32.50, pack_count: null, pack_size: null, pack_unit: "g", recipe_unit: "g", notes: "" },
-  { name: "Beef Mince", buy_unit: "kg", buy_qty: 3, total_price: 24.00, pack_count: null, pack_size: null, pack_unit: "g", recipe_unit: "g", notes: "" },
-  { name: "Tomato Paste", buy_unit: "carton", buy_qty: 1, total_price: 18.00, pack_count: 6, pack_size: 800, pack_unit: "g", recipe_unit: "g", notes: "6x800g cans" },
-  { name: "Olive Oil", buy_unit: "each", buy_qty: 2, total_price: 22.00, pack_count: null, pack_size: null, pack_unit: "ml", recipe_unit: "ml", notes: "2L bottle" },
-  { name: "Plain Flour", buy_unit: "kg", buy_qty: 10, total_price: 14.00, pack_count: null, pack_size: null, pack_unit: "g", recipe_unit: "g", notes: "" }
+  { name: "Beef Mince",     buy_unit: "kg", buy_qty: 3, total_price: 24.00, pack_count: null, pack_size: null, pack_unit: "g", recipe_unit: "g", notes: "" },
+  { name: "Tomato Paste",   buy_unit: "carton", buy_qty: 1, total_price: 18.00, pack_count: 6, pack_size: 800, pack_unit: "g", recipe_unit: "g", notes: "6x800g cans" },
+  { name: "Olive Oil",      buy_unit: "each", buy_qty: 2, total_price: 22.00, pack_count: null, pack_size: null, pack_unit: "ml", recipe_unit: "ml", notes: "2L bottle" },
+  { name: "Plain Flour",    buy_unit: "kg", buy_qty: 10, total_price: 14.00, pack_count: null, pack_size: null, pack_unit: "g", recipe_unit: "g", notes: "" }
 ];
+
+// ── EMAIL INVOICE QUEUE ───────────────────────────────────────────────────────
+// Polls the Google Apps Script Web App for invoices auto-extracted from Gmail.
+// Supplier emails → Apps Script → Claude API → Google Sheet → here.
+
+let emailQueueItems = []; // holds fetched items so onclick handlers can reference by index
+
+async function pollEmailQueue() {
+  const url = localStorage.getItem('rcc-gmail-webapp-url');
+  const el  = document.getElementById('email-queue-list');
+  if (!el) return;
+  if (!url) {
+    el.innerHTML = '<div class="muted" style="font-size:.82rem">Configure Gmail Invoice Queue URL in Settings (⚙) to enable.</div>';
+    return;
+  }
+  el.innerHTML = '<div class="muted" style="font-size:.82rem">Checking for new invoices…</div>';
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Unknown error');
+    renderEmailQueue(data.pending || []);
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--danger);font-size:.82rem">Could not reach queue: ${e.message}</div>`;
+  }
+}
+
+function renderEmailQueue(items) {
+  emailQueueItems = items;
+  const el = document.getElementById('email-queue-list');
+  if (!el) return;
+  if (!items.length) {
+    el.innerHTML = '<div class="muted" style="font-size:.82rem">No pending invoices. Your Gmail queue is clear.</div>';
+    return;
+  }
+  el.innerHTML = items.map((item, idx) => `
+    <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;
+                padding:9px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <strong>${item.supplierName}</strong>
+        <span class="badge bb" style="margin-left:6px;font-size:.72rem">${item.extractedJson.length} items</span>
+        <div class="muted" style="font-size:.74rem;margin-top:2px">${item.filename} &nbsp;·&nbsp; received ${item.receivedDate}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="skipEmailInvoice(${idx}, this)">Skip</button>
+      <button class="btn btn-primary btn-sm" onclick="openEmailInvoice(${idx})">Review →</button>
+    </div>`).join('');
+}
+
+async function skipEmailInvoice(idx, btn) {
+  const item = emailQueueItems[idx];
+  const url  = localStorage.getItem('rcc-gmail-webapp-url');
+  if (!url || !item) return;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await fetch(url, { method: 'POST', body: JSON.stringify({ id: item.id, action: 'skipped' }) });
+    emailQueueItems.splice(idx, 1);
+    renderEmailQueue(emailQueueItems);
+    toast('Invoice skipped.');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Skip';
+    toast('Failed: ' + e.message, 'error');
+  }
+}
+
+function openEmailInvoice(idx) {
+  const item = emailQueueItems[idx];
+  if (!item) return;
+
+  // Auto-match supplier by name
+  let supplierId = '';
+  const matchedSup = (db.suppliers || []).find(s =>
+    s.name.toLowerCase().includes(item.supplierName.toLowerCase()) ||
+    item.supplierName.toLowerCase().includes(s.name.toLowerCase())
+  );
+  if (matchedSup) supplierId = matchedSup.id;
+
+  // Populate wizard state, skipping straight to step 3
+  wiz = {
+    file:         { name: item.filename },
+    supplierId,
+    extracted:    item.extractedJson,
+    matched:      item.extractedJson.map(r => ({ ...r, userIngredientId: null })),
+    step:         1,
+    emailQueueId: item.id
+  };
+
+  document.getElementById('wizard-title').textContent = `Email Invoice — ${item.supplierName}: ${item.filename}`;
+  openModal('modal-invoice-wizard');
+
+  // Run AI ingredient matching (step 2), then show review (step 3)
+  setWizardStep(2);
+  document.getElementById('wizard-content').innerHTML =
+    `<div class="ai-box ai-thinking">🤖 Matching ${item.extractedJson.length} items to your ingredient library…</div>`;
+  document.getElementById('wizard-footer').innerHTML = '';
+
+  wizardMatch().catch(() => {
+    wiz.matched = wiz.extracted.map(r => ({ ...r, userIngredientId: null }));
+    setWizardStep(3); renderWizardStep3();
+  });
+}
 
 // ── SETTINGS HELPERS ─────────────────────────────────────────────────────────
 function getDeliveryCommission() {
@@ -26,7 +123,7 @@ function claudePost(body) {
   const key = getApiKey();
   if (!key) {
     openModal('modal-settings');
-    throw new Error('API key required — enter it in the Settings panel that just opened, then try again.');
+    throw new Error('API key required — enter it in Settings, then try again.');
   }
   return fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -40,8 +137,77 @@ function claudePost(body) {
   });
 }
 
+// ── MODIFIER LINKS (persisted in db) ─────────────────────────────────────────
+// db.modifierLinks = [{ pattern, type, ingredientId, qty, unit, extraCost }, ...]
+// pattern:      exact modifier text from CSV (e.g. "+ Extra Bufala Cheese")
+// type:         "add" (+ prefix) | "remove" (No prefix) | "neutral"
+// ingredientId: links to ingredient for inventory deduction per serving
+// qty / unit:   deduction amount
+// extraCost:    manual fallback cost — only used when no ingredient is linked
+
+// Returns the extra food cost per serving for a modifier string.
+// When an ingredient is linked, cost = effectiveCost(ingredient) × qty (auto).
+// When no ingredient is linked, falls back to the manual extraCost field.
+function getModifierExtraCost(modifierStr) {
+  if (!modifierStr || !db.modifierLinks || !db.modifierLinks.length) return 0;
+  const parts = modifierStr.split(',').map(s => s.trim().toLowerCase());
+  return (db.modifierLinks).reduce((sum, ml) => {
+    if (parts.some(p => p === ml.pattern.toLowerCase())) {
+      if (ml.ingredientId && ml.qty) {
+        const ing = db.ingredients.find(i => i.id === ml.ingredientId);
+        if (ing) return sum + effectiveCost(ing) * (ml.qty || 0);
+      }
+      return sum + (parseFloat(ml.extraCost) || 0);
+    }
+    return sum;
+  }, 0);
+}
+
+function modifierType(pattern) {
+  if (pattern.startsWith('+')) return 'add';
+  if (pattern.toLowerCase().startsWith('no ')) return 'remove';
+  return 'neutral';
+}
+
+// ── FUZZY MENU ITEM MATCHING ─────────────────────────────────────────────────
+// Square CSV "Item" column = "Garlic Bread - Large 10 Pieces" or "Margherita Pizza"
+// Your menu items might be named "Garlic Bread - Large" or just "Garlic Bread"
+// Strategy: exact → startsWith → contains → base-name match (strip after ' - ')
+
+function findMenuItemMatch(squareName) {
+  const sq = squareName.toLowerCase().trim();
+
+  // 1. Exact match
+  let m = db.menuItems.find(x => x.name.toLowerCase().trim() === sq);
+  if (m) return { item: m, confidence: 'exact' };
+
+  // 2. Square name starts with menu item name (menu item is a prefix)
+  m = db.menuItems.find(x => sq.startsWith(x.name.toLowerCase().trim()));
+  if (m) return { item: m, confidence: 'prefix' };
+
+  // 3. Menu item name starts with Square name
+  m = db.menuItems.find(x => x.name.toLowerCase().trim().startsWith(sq));
+  if (m) return { item: m, confidence: 'prefix' };
+
+  // 4. Strip variation suffix from Square name (everything after ' - ')
+  //    e.g. "Garlic Bread - Large 10 Pieces" → "Garlic Bread"
+  const baseSq = sq.split(' - ')[0].trim();
+  if (baseSq !== sq) {
+    m = db.menuItems.find(x => x.name.toLowerCase().trim() === baseSq);
+    if (m) return { item: m, confidence: 'variation' };
+
+    m = db.menuItems.find(x => x.name.toLowerCase().trim().startsWith(baseSq));
+    if (m) return { item: m, confidence: 'variation' };
+  }
+
+  // 5. Contains match (last resort)
+  m = db.menuItems.find(x => sq.includes(x.name.toLowerCase().trim()) || x.name.toLowerCase().trim().includes(sq));
+  if (m) return { item: m, confidence: 'fuzzy' };
+
+  return { item: null, confidence: 'none' };
+}
+
 // ── SQUARE CSV PARSER ────────────────────────────────────────────────────────
-// Parses Square item-level CSV export directly — no AI needed, zero cost!
 function parseSquareCSV(csvText) {
   const lines = csvText.trim().split('\n');
   const headers = parseCSVLine(lines[0]);
@@ -50,38 +216,46 @@ function parseSquareCSV(csvText) {
   const itemMap = {};
 
   for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
     const cols = parseCSVLine(lines[i]);
     if (cols.length < 5) continue;
 
     const row = {};
     headers.forEach((h, idx) => row[h.trim()] = (cols[idx] || '').trim());
 
-    const item    = row['Item'] || '';
-    const channel = row['Channel'] || '';
-    const qty     = parseFloat(row['Qty']) || 0;
-    const net     = parseMoney(row['Net Sales']); // already after discounts, this is our base
+    const item      = row['Item'] || '';
+    const variation = row['Price Point Name'] || '';   // Square size/variation column
+    const modifiers = row['Modifiers Applied'] || '';  // Square modifiers column
+    const channel   = row['Channel'] || '';
+    const qty       = parseFloat(row['Qty']) || 0;
+    const net       = parseMoney(row['Net Sales']);
 
-    // Skip delivery notes, order IDs, blank items, zero/negative/comped items
     if (!item || item.startsWith('Order ID') || item.startsWith('DELIVERY') || net <= 0 || qty <= 0) continue;
 
-    // Determine channel type
-    const isDelivery = channel.toLowerCase().includes(deliveryChannel);
+    const isDelivery  = channel.toLowerCase().includes(deliveryChannel);
     const channelType = isDelivery ? 'delivery' : 'dinein';
-
-    // Commission is taken from Net Sales for delivery orders
     const commissionLost = isDelivery ? net * commission : 0;
     const trueNet        = isDelivery ? net * (1 - commission) : net;
 
-    const key = `${item}|||${channelType}`;
+    // Key includes variation AND modifiers so each unique combination is a separate line.
+    // Modifiers are sorted so "A, B" and "B, A" group together.
+    const varLabel  = variation || '';
+    const normMods  = modifiers ? modifiers.split(',').map(s => s.trim()).sort().join('|') : '';
+    const key = `${item}|||${varLabel}|||${channelType}|||${normMods}`;
+
     if (!itemMap[key]) {
       itemMap[key] = {
-        name: item,
-        channel: channelType,
+        squareName:   item,        // raw Square item name
+        variation:    varLabel,    // Price Point Name (size, etc.)
+        modifiers:    modifiers,   // raw modifier string as-is for display/lookup
+        channel:      channelType,
         channelLabel: isDelivery ? 'Delivery' : 'Dine-in',
-        qty: 0,
-        grossRevenue: 0,  // Net Sales (after discount, before commission)
-        trueRevenue: 0,   // after commission for delivery
-        commissionLost: 0
+        qty:          0,
+        grossRevenue: 0,
+        trueRevenue:  0,
+        commissionLost: 0,
+        menuItemId:   null,
+        matchConfidence: 'none'
       };
     }
     itemMap[key].qty            += qty;
@@ -90,7 +264,20 @@ function parseSquareCSV(csvText) {
     itemMap[key].commissionLost += commissionLost;
   }
 
-  return Object.values(itemMap);
+  // Now pre-match each item to a menu item
+  const results = Object.values(itemMap);
+  results.forEach(r => {
+    // Try full "Item - Variation" first, then just Item
+    const fullName = r.variation ? `${r.squareName} - ${r.variation}` : r.squareName;
+    let match = findMenuItemMatch(fullName);
+    if (match.confidence === 'none') match = findMenuItemMatch(r.squareName);
+    r.menuItemId      = match.item ? match.item.id : null;
+    r.matchConfidence = match.confidence;
+    // Display name shown in review table
+    r.displayName = r.variation ? `${r.squareName} — ${r.variation}` : r.squareName;
+  });
+
+  return results;
 }
 
 // Robust CSV parser — handles quoted fields with commas inside
@@ -100,14 +287,9 @@ function parseCSVLine(line) {
   let inQuotes = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
-    if (ch === '"') {
-      inQuotes = !inQuotes;
-    } else if (ch === ',' && !inQuotes) {
-      result.push(current);
-      current = '';
-    } else {
-      current += ch;
-    }
+    if (ch === '"') { inQuotes = !inQuotes; }
+    else if (ch === ',' && !inQuotes) { result.push(current); current = ''; }
+    else { current += ch; }
   }
   result.push(current);
   return result;
@@ -117,6 +299,167 @@ function parseMoney(str) {
   return parseFloat((str || '0').replace(/[$,]/g, '')) || 0;
 }
 
+// ── SQUARE ORDERS API PARSER ─────────────────────────────────────────────────
+// Transforms Orders API response into same shape as parseSquareCSV() output
+// so renderSquareSalesReview() can be reused unchanged.
+function parseSquareOrders(orders) {
+  const commission     = getDeliveryCommission();
+  const deliveryChannel = getDeliveryChannel().toLowerCase();
+  const itemMap = {};
+
+  for (const order of (orders || [])) {
+    // Detect channel from fulfillment type or source name
+    const fulfillmentType = (order.fulfillments && order.fulfillments[0] && order.fulfillments[0].type) || '';
+    const sourceName = (order.source && order.source.name || '').toLowerCase();
+    const isDelivery = fulfillmentType === 'DELIVERY' || sourceName.includes(deliveryChannel);
+    const channelType  = isDelivery ? 'delivery' : 'dinein';
+    const channelLabel = isDelivery ? 'Delivery' : 'Dine-in';
+
+    for (const li of (order.line_items || [])) {
+      const name      = li.name || '';
+      const variation = li.variation_name || '';
+      if (!name) continue;
+
+      const qty     = parseInt(li.quantity) || 0;
+      // Square prices are GST-inclusive in Australia.
+      // gross_sales_money = item price × qty (may include card surcharge apportionment)
+      // total_tax_money   = GST component (inclusive)
+      // Net ex-GST = gross_sales_money - total_tax_money  (matches Square CSV "Net Sales")
+      const grossAmt = (li.gross_sales_money && li.gross_sales_money.amount) || 0;
+      const taxAmt   = (li.total_tax_money   && li.total_tax_money.amount)   || 0;
+      const gross    = grossAmt / 100;
+      const net      = (grossAmt - taxAmt) / 100;
+
+      if (qty <= 0 || net <= 0) continue;
+
+      const commissionLost = isDelivery ? net * commission : 0;
+      const trueNet        = isDelivery ? net * (1 - commission) : net;
+      const modifiers      = (li.modifiers || []).map(m => m.name).filter(Boolean).join(', ');
+      const key            = `${name}|||${variation}|||${channelType}`;
+
+      if (!itemMap[key]) {
+        itemMap[key] = {
+          squareName: name, variation, modifiers,
+          channel: channelType, channelLabel,
+          qty: 0, grossRevenue: 0, trueRevenue: 0, commissionLost: 0,
+          menuItemId: null, matchConfidence: 'none'
+        };
+      }
+      itemMap[key].qty            += qty;
+      itemMap[key].grossRevenue   += gross;
+      itemMap[key].trueRevenue    += trueNet;
+      itemMap[key].commissionLost += commissionLost;
+      if (modifiers && !itemMap[key].modifiers) itemMap[key].modifiers = modifiers;
+    }
+  }
+
+  // Pre-match each item to a menu item (same logic as parseSquareCSV)
+  const results = Object.values(itemMap);
+  results.forEach(r => {
+    const fullName = r.variation ? `${r.squareName} - ${r.variation}` : r.squareName;
+    let match = findMenuItemMatch(fullName);
+    if (match.confidence === 'none') match = findMenuItemMatch(r.squareName);
+    r.menuItemId      = match.item ? match.item.id : null;
+    r.matchConfidence = match.confidence;
+    r.displayName     = r.variation ? `${r.squareName} — ${r.variation}` : r.squareName;
+  });
+
+  return results;
+}
+
+// ── RAW ORDERS CSV EXPORT (debug / analysis) ─────────────────────────────────
+function downloadRawOrdersCSV(orders, from, to) {
+  const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const headers = [
+    'order_id','order_date','source','fulfillment_type',
+    'item_name','variation_name','quantity',
+    'base_price_aud','gross_sales_aud','gst_aud','net_ex_gst_aud','total_money_aud',
+    'modifiers','currency'
+  ];
+  const rows = [headers.map(esc).join(',')];
+
+  for (const o of orders) {
+    const date = (o.created_at || '').slice(0, 10);
+    const source = (o.source && o.source.name) || '';
+    const fulfillment = (o.fulfillments && o.fulfillments[0] && o.fulfillments[0].type) || '';
+
+    for (const li of (o.line_items || [])) {
+      const grossAmt = (li.gross_sales_money && li.gross_sales_money.amount) || 0;
+      const taxAmt   = (li.total_tax_money   && li.total_tax_money.amount)   || 0;
+      const mods     = (li.modifiers || []).map(m => m.name).filter(Boolean).join('; ');
+      rows.push([
+        esc(o.id), esc(date), esc(source), esc(fulfillment),
+        esc(li.name || ''), esc(li.variation_name || ''), esc(li.quantity || ''),
+        esc((((li.base_price_money && li.base_price_money.amount) || 0) / 100).toFixed(2)),
+        esc((grossAmt / 100).toFixed(2)),
+        esc((taxAmt / 100).toFixed(2)),
+        esc(((grossAmt - taxAmt) / 100).toFixed(2)),
+        esc((((li.total_money && li.total_money.amount) || 0) / 100).toFixed(2)),
+        esc(mods),
+        esc((li.gross_sales_money && li.gross_sales_money.currency) || 'AUD')
+      ].join(','));
+    }
+  }
+
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(rows.join('\n'));
+  a.download = `square-raw-${from}-to-${to}.csv`;
+  a.click();
+}
+
+// ── SQUARE DIRECT API FETCH ───────────────────────────────────────────────────
+async function fetchFromSquare(from, to) {
+  const token      = localStorage.getItem('rcc-square-token') || '';
+  const locationId = localStorage.getItem('rcc-square-location') || '';
+
+  const locationIds = locationId.split(',').map(s => s.trim()).filter(Boolean);
+  if (!token || !locationIds.length) {
+    alert('Enter Square Access Token and Location ID(s) in Settings first (⚙ icon).');
+    openModal('modal-settings');
+    return;
+  }
+
+  const btn = document.getElementById('sq-fetch-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Fetching…'; }
+
+  try {
+    // Build timezone-aware RFC 3339 timestamps
+    const offset = -new Date().getTimezoneOffset();
+    const sign   = offset >= 0 ? '+' : '-';
+    const hh     = String(Math.floor(Math.abs(offset) / 60)).padStart(2, '0');
+    const mm     = String(Math.abs(offset) % 60).padStart(2, '0');
+    const tz     = `${sign}${hh}:${mm}`;
+
+    const resp = await fetch('/api/square-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, locationIds, from: `${from}T00:00:00${tz}`, to: `${to}T23:59:59${tz}` })
+    });
+
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Server error');
+
+    const orders = data.orders || [];
+    if (!orders.length) { toast('No completed orders found in that date range.', 'warn'); return; }
+
+    const salesData = parseSquareOrders(orders);
+    if (!salesData.length) { toast('No sales line items found.', 'warn'); return; }
+
+    if (!db.modifierLinks) db.modifierLinks = [];
+    pendingSalesImport = { file: { name: `Square API ${from} → ${to}` }, data: salesData, isSquare: true };
+    document.getElementById('sales-ai-status').style.display = 'none';
+    document.getElementById('sales-ai-content').innerHTML = '';
+    renderSquareSalesReview(salesData);
+    document.getElementById('sales-ai-approve').style.display = 'inline-block';
+    openModal('modal-sales-ai');
+
+  } catch (e) {
+    alert('Square fetch failed: ' + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Fetch from Square'; }
+  }
+}
+
 // ── SQUARE SALES IMPORT ──────────────────────────────────────────────────────
 async function startSalesImport(input) {
   const file = input.files[0]; if (!file) return; input.value = '';
@@ -124,7 +467,6 @@ async function startSalesImport(input) {
   const dup = db.importLog.find(l => l.filename === file.name && l.type === 'sales');
   if (dup && !confirm(`"${file.name}" already imported on ${dup.date}. Continue?`)) return;
 
-  const commission = getDeliveryCommission();
   const st      = document.getElementById('sales-ai-status');
   const content = document.getElementById('sales-ai-content');
 
@@ -137,24 +479,21 @@ async function startSalesImport(input) {
 
   try {
     const text = await file.text();
-
-    // Detect Square CSV by checking headers
     const firstLine = text.split('\n')[0];
     const isSquareCSV = firstLine.includes('Net Sales') && firstLine.includes('Channel') && firstLine.includes('Gross Sales');
 
     if (!isSquareCSV) {
-      throw new Error('This does not look like a Square items CSV. Please export the "Items" report from Square Dashboard → Reports → Sales.');
+      throw new Error('This does not look like a Square items CSV. Export the "Items" report from Square Dashboard → Reports → Sales.');
     }
 
     const parsed = parseSquareCSV(text);
+    if (!parsed.length) throw new Error('No valid sales rows found.');
 
-    if (!parsed.length) {
-      throw new Error('No valid sales rows found. Check the file is a Square Items export with actual sales.');
-    }
+    if (!db.modifierLinks) db.modifierLinks = [];
 
     pendingSalesImport = { file, data: parsed, isSquare: true };
     st.style.display = 'none';
-    renderSquareSalesReview(parsed, commission);
+    renderSquareSalesReview(parsed);
     document.getElementById('sales-ai-approve').style.display = 'inline-block';
 
   } catch(e) {
@@ -163,14 +502,40 @@ async function startSalesImport(input) {
   }
 }
 
-function renderSquareSalesReview(data, commission) {
+// ── CONFIDENCE BADGE ─────────────────────────────────────────────────────────
+function confidenceBadge(c) {
+  if (c === 'exact')     return `<span class="badge bg">✓ Exact</span>`;
+  if (c === 'prefix')    return `<span class="badge bg">✓ Matched</span>`;
+  if (c === 'variation') return `<span class="badge bg">✓ Variation</span>`;
+  if (c === 'fuzzy')     return `<span class="badge bw">~ Fuzzy</span>`;
+  return `<span class="badge br">✗ No match</span>`;
+}
+
+// ── RENDER REVIEW MODAL ──────────────────────────────────────────────────────
+function renderSquareSalesReview(data) {
+  const commission     = getDeliveryCommission();
   const totalDineIn    = data.filter(r => r.channel === 'dinein').reduce((s, r) => s + r.trueRevenue, 0);
   const totalDelivery  = data.filter(r => r.channel === 'delivery').reduce((s, r) => s + r.trueRevenue, 0);
   const totalCommLost  = data.reduce((s, r) => s + r.commissionLost, 0);
+  const matched        = data.filter(r => r.menuItemId).length;
+  const unmatched      = data.length - matched;
+
+  // Collect unique modifiers across all rows
+  const allModifiers = [...new Set(
+    data.flatMap(r => r.modifiers ? r.modifiers.split(',').map(s => s.trim()).filter(Boolean) : [])
+  )].sort();
+
+  const menuOpts = '<option value="">— Unlinked (revenue only) —</option>' +
+    db.menuItems.map(m => {
+      const rec = db.recipes.find(r => r.id === m.recipeId);
+      return `<option value="${m.id}">${m.name}${rec ? '' : ' ⚠ no recipe'}</option>`;
+    }).join('');
 
   document.getElementById('sales-ai-content').innerHTML = `
     <div style="background:rgba(78,204,163,.08);border:1px solid rgba(78,204,163,.25);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;">
-      📊 <strong style="color:var(--accent2)">Square CSV parsed</strong> — ${data.length} line items. No AI used, no cost.
+      📊 <strong style="color:var(--accent2)">Square CSV parsed</strong> — ${data.length} line item(s).
+      <strong style="color:var(--accent2)">${matched}</strong> matched to menu recipes,
+      <strong style="color:${unmatched > 0 ? 'var(--warn)' : 'var(--accent2)'}"> ${unmatched} unlinked</strong>.
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
@@ -180,7 +545,7 @@ function renderSquareSalesReview(data, commission) {
       </div>
       <div class="stat" style="padding:10px">
         <div class="stat-val" style="font-size:1.1rem;color:var(--accent2)">$${fmt(totalDelivery)}</div>
-        <div class="stat-label">Delivery Net (after ${(commission*100).toFixed(0)}% commission)</div>
+        <div class="stat-label">Delivery Net (after ${(commission*100).toFixed(0)}% comm.)</div>
       </div>
       <div class="stat" style="padding:10px">
         <div class="stat-val" style="font-size:1.1rem;color:var(--accent2)">$${fmt(totalDineIn + totalDelivery)}</div>
@@ -192,78 +557,202 @@ function renderSquareSalesReview(data, commission) {
       </div>
     </div>
 
-    <div style="overflow-x:auto;max-height:360px;overflow-y:auto">
-      <table style="font-size:.8rem">
+    ${allModifiers.length > 0 ? (() => {
+      const linked   = allModifiers.filter(m => (db.modifierLinks||[]).some(ml => ml.pattern.toLowerCase() === m.toLowerCase() && ml.ingredientId));
+      const unlinked = allModifiers.filter(m => !linked.includes(m));
+      return `<div style="background:rgba(108,99,255,.08);border:1px solid rgba(108,99,255,.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.82rem">
+        🔧 <strong style="color:var(--accent)">${allModifiers.length} modifier${allModifiers.length !== 1 ? 's' : ''} in this import</strong>
+        — <span style="color:var(--accent2)">${linked.length} linked to ingredients</span>${unlinked.length ? `, <span style="color:var(--warn)">${unlinked.length} unlinked (${unlinked.map(m=>`<em>${m}</em>`).join(', ')})</span>` : ''}.
+        <span class="muted">Edit ingredient links in the <strong>Modifiers</strong> section on the Menu page.</span>
+      </div>`;
+    })() : ''}
+
+    <div style="font-weight:600;font-size:.8rem;margin-bottom:6px">
+      SALES LINES — review menu item links before approving
+    </div>
+    <div style="overflow-x:auto;max-height:340px;overflow-y:auto">
+      <table style="font-size:.79rem">
         <thead>
           <tr>
-            <th>Item</th>
+            <th>Square Item / Variation</th>
+            <th>Modifiers</th>
             <th>Channel</th>
             <th>Qty</th>
-            <th>Net Sales (after discount)</th>
-            <th>Commission Lost</th>
-            <th>True Net Revenue</th>
+            <th>True Revenue</th>
+            <th>Match</th>
+            <th>Link to Menu Item</th>
           </tr>
         </thead>
         <tbody>
-          ${[...data].sort((a,b) => b.trueRevenue - a.trueRevenue).map(r => `<tr>
-            <td><strong>${r.name}</strong></td>
-            <td><span class="badge ${r.channel === 'dinein' ? 'bg' : 'bp'}">${r.channelLabel}</span></td>
-            <td>${r.qty}</td>
-            <td>$${fmt(r.grossRevenue)}</td>
-            <td style="color:var(--danger)">${r.channel === 'delivery' ? `-$${fmt(r.commissionLost)}` : '—'}</td>
-            <td><strong style="color:var(--accent2)">$${fmt(r.trueRevenue)}</strong></td>
-          </tr>`).join('')}
+          ${[...data].sort((a,b) => b.trueRevenue - a.trueRevenue).map((r) => {
+            const idx = data.indexOf(r);
+            return `<tr style="${!r.menuItemId ? 'background:rgba(255,217,61,.04)' : ''}">
+              <td>
+                <strong>${r.squareName}</strong>
+                ${r.variation ? `<div class="muted">Variation: ${r.variation}</div>` : ''}
+              </td>
+              <td style="color:var(--accent);font-size:.75rem">${r.modifiers || '—'}</td>
+              <td><span class="badge ${r.channel === 'dinein' ? 'bg' : 'bp'}">${r.channelLabel}</span></td>
+              <td>${r.qty}</td>
+              <td><strong style="color:var(--accent2)">$${fmt(r.trueRevenue)}</strong></td>
+              <td>${confidenceBadge(r.matchConfidence)}</td>
+              <td>
+                <select style="font-size:.77rem;min-width:180px"
+                  onchange="updateSalesLink(${idx}, this.value)">
+                  ${menuOpts}
+                </select>
+              </td>
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
     </div>`;
+
+  // Set dropdowns to pre-matched values
+  const selects = document.querySelectorAll('#sales-ai-content tbody select');
+  [...data].sort((a,b) => b.trueRevenue - a.trueRevenue).forEach((r, si) => {
+    if (r.menuItemId && selects[si]) selects[si].value = r.menuItemId;
+  });
 }
 
+function updateSalesLink(idx, menuItemId) {
+  if (pendingSalesImport && pendingSalesImport.data[idx]) {
+    pendingSalesImport.data[idx].menuItemId      = menuItemId || null;
+    pendingSalesImport.data[idx].matchConfidence = menuItemId ? 'manual' : 'none';
+  }
+}
+
+function updateModifierLink(field, modName, val) {
+  if (!db.modifierLinks) db.modifierLinks = [];
+  let link = db.modifierLinks.find(ml => ml.pattern.toLowerCase() === modName.toLowerCase());
+  if (!link) {
+    link = { pattern: modName, type: modifierType(modName), ingredientId: null, qty: 0, unit: 'g', extraCost: 0 };
+    db.modifierLinks.push(link);
+  }
+  if (field === 'qty' || field === 'extraCost') {
+    link[field] = parseFloat(val) || 0;
+  } else {
+    link[field] = val;
+  }
+  // Remove entries with no data at all
+  db.modifierLinks = db.modifierLinks.filter(ml => ml.ingredientId || ml.extraCost > 0 || ml.qty > 0);
+}
+
+// ── APPROVE SALES IMPORT ──────────────────────────────────────────────────────
 function approveSalesImport() {
   const { data, isSquare } = pendingSalesImport;
-  let matched = 0, totalRev = 0;
+
+  // Save modifier costs to db
+  saveDB();
+
+  let imported = 0, linkedCount = 0, totalRev = 0;
 
   if (isSquare) {
     data.forEach(r => {
-      if (!r.name || !r.qty) return;
-      let m = db.menuItems.find(x => x.name.toLowerCase() === r.name.toLowerCase());
-      if (!m) {
-        m = { id: uid(), name: r.name, price: r.qty > 0 ? r.trueRevenue / r.qty : 0, recipeId: '', category: r.channelLabel };
-        db.menuItems.push(m);
+      if (!r.squareName || !r.qty) return;
+
+      // Find or create menu item
+      let menuItem = r.menuItemId ? db.menuItems.find(x => x.id === r.menuItemId) : null;
+
+      if (!menuItem) {
+        // Create a placeholder menu item so revenue is tracked
+        const displayName = r.variation ? `${r.squareName} - ${r.variation}` : r.squareName;
+        menuItem = {
+          id: uid(),
+          name: displayName,
+          price: r.qty > 0 ? r.trueRevenue / r.qty : 0,
+          recipeId: '',
+          category: ''
+        };
+        db.menuItems.push(menuItem);
+        r.menuItemId = menuItem.id;
       }
-      const rev  = r.trueRevenue;
-      totalRev  += rev;
-      const rec  = db.recipes.find(x => x.id === m.recipeId);
-      const snap = rec ? calcRecipeCost(rec.lines, true) : 0;
+
+      const rev = r.trueRevenue;
+      totalRev += rev;
+
+      // Get recipe cost snapshot
+      const rec  = db.recipes.find(x => x.id === menuItem.recipeId);
+      const baseSnap = rec ? calcRecipeCost(rec.lines, true) : 0;
+
+      // Add modifier extra cost (per unit sold)
+      const modExtraCost = getModifierExtraCost(r.modifiers);
+      const snap = baseSnap + modExtraCost;
+
+      if (rec) linkedCount++;
+
       db.sales.push({
-        id: uid(), date: todayStr(), itemId: m.id, qty: r.qty,
-        revenue: rev, snapshotCost: snap,
-        channel: r.channel, channelLabel: r.channelLabel,
-        grossRevenue: r.grossRevenue, commissionLost: r.commissionLost
+        id:             uid(),
+        date:           todayStr(),
+        itemId:         menuItem.id,
+        qty:            r.qty,
+        revenue:        rev,
+        snapshotCost:   snap,
+        channel:        r.channel,
+        channelLabel:   r.channelLabel,
+        grossRevenue:   r.grossRevenue,
+        commissionLost: r.commissionLost,
+        squareName:     r.squareName,
+        variation:      r.variation,
+        modifiers:      r.modifiers,
+        modifierExtraCost: modExtraCost
       });
-      matched++;
+      imported++;
     });
   } else {
     // Legacy fallback
     data.forEach(r => {
       if (!r.name || !r.qty_sold) return;
       let m = db.menuItems.find(x => x.name.toLowerCase() === r.name.toLowerCase());
-      if (!m) { m = { id: uid(), name: r.name, price: r.selling_price||0, recipeId: '', category: 'Imported' }; db.menuItems.push(m); }
+      if (!m) { m = { id: uid(), name: r.name, price: r.selling_price||0, recipeId: '', category: '' }; db.menuItems.push(m); }
       const rev = (r.selling_price||0) * r.qty_sold; totalRev += rev;
       const rec  = db.recipes.find(x => x.id === m.recipeId);
       const snap = rec ? calcRecipeCost(rec.lines, true) : 0;
       db.sales.push({ id: uid(), date: todayStr(), itemId: m.id, qty: r.qty_sold, revenue: rev, snapshotCost: snap, channel: 'dinein', channelLabel: 'Dine-in' });
-      matched++;
+      imported++;
     });
   }
 
   db.importLog.push({
-    id: uid(), date: todayStr(), filename: pendingSalesImport.file.name, type: 'sales',
-    supplierName: 'Square', itemCount: data.length, matchedCount: matched,
-    totalValue: totalRev, status: 'approved', data: JSON.parse(JSON.stringify(data))
+    id:           uid(),
+    date:         todayStr(),
+    filename:     pendingSalesImport.file.name,
+    type:         'sales',
+    supplierName: 'Square',
+    itemCount:    data.length,
+    matchedCount: imported,
+    linkedCount:  linkedCount,
+    totalValue:   totalRev,
+    status:       'approved',
+    data:         JSON.parse(JSON.stringify(data))
   });
 
-  saveDB(); closeModal('modal-sales-ai'); renderSales(); renderImportLog();
-  toast(`Square import: ${matched} items imported. True revenue: $${fmt(totalRev)}`);
+  // Auto-create modifier link stubs for any new modifiers not yet in the library
+  if (!db.modifierLinks) db.modifierLinks = [];
+  let newModCount = 0;
+  const allModsInImport = new Set();
+  data.forEach(r => {
+    if (r.modifiers) r.modifiers.split(',').map(s => s.trim()).filter(Boolean).forEach(m => allModsInImport.add(m));
+  });
+  allModsInImport.forEach(mod => {
+    if (!db.modifierLinks.some(ml => ml.pattern.toLowerCase() === mod.toLowerCase())) {
+      db.modifierLinks.push({ pattern: mod, type: modifierType(mod), ingredientId: null, qty: 0, unit: 'g', extraCost: 0 });
+      newModCount++;
+    }
+  });
+
+  saveDB();
+  closeModal('modal-sales-ai');
+  renderSales();
+  renderModifierLinks();
+  renderImportLog();
+
+  const unlinked = imported - linkedCount;
+  let msg = `Square import: ${imported} items, $${fmt(totalRev)} revenue.`;
+  if (linkedCount > 0) msg += ` ${linkedCount} with recipe cost.`;
+  if (unlinked > 0)    msg += ` ${unlinked} unlinked — add recipes via Menu tab.`;
+  if (newModCount > 0) msg += ` ${newModCount} new modifier${newModCount !== 1 ? 's' : ''} added to Menu → Modifiers.`;
+  toast(msg);
 }
 
 // ── INVOICE WIZARD ───────────────────────────────────────────────────────────
@@ -291,7 +780,7 @@ function renderWizardStep1() {
   wc.innerHTML = `
     ${DEV_MODE
       ? `<div style="background:rgba(255,217,61,.12);border:1px solid rgba(255,217,61,.4);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.82rem;">
-          🧪 <strong style="color:var(--warn)">Dev Mode ON</strong> — Sample invoice data will be used. No API calls, no cost.
+          🧪 <strong style="color:var(--warn)">Dev Mode ON</strong> — Sample invoice data will be used.
           <button class="btn btn-ghost btn-sm" style="margin-left:10px" onclick="DEV_MODE=false;renderWizardStep1()">Switch to Live</button>
         </div>`
       : `<div style="background:rgba(78,204,163,.12);border:1px solid rgba(78,204,163,.4);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.82rem;">
@@ -543,6 +1032,107 @@ function approveInvoiceImport() {
     data: JSON.parse(JSON.stringify(wiz.matched)) });
   saveDB(); closeModal('modal-invoice-wizard'); renderIngredients(); renderImportLog();
   toast(`Invoice imported: ${matched.length} WAC updated${skippedNames.length ? ' | '+skippedNames.length+' skipped' : ''}.`);
+
+  // If this invoice came from the Gmail queue, mark it as imported
+  if (wiz.emailQueueId) {
+    const url = localStorage.getItem('rcc-gmail-webapp-url');
+    if (url) {
+      fetch(url, { method: 'POST', body: JSON.stringify({ id: wiz.emailQueueId, action: 'imported' }) })
+        .then(() => pollEmailQueue())
+        .catch(() => {});
+    }
+  }
+}
+
+// ── MODIFIER LIBRARY ─────────────────────────────────────────────────────────
+// Persistent management table for modifier → ingredient links.
+// Same db.modifierLinks used by import review + calcTheoreticalUsage.
+
+const MOD_UNITS = ['g','kg','ml','L','each','portion'];
+
+function renderModifierLinks() {
+  const tbody = document.getElementById('modifier-links-body');
+  if (!tbody) return;
+  if (!db.modifierLinks) db.modifierLinks = [];
+
+  if (!db.modifierLinks.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;font-size:.82rem">
+      No modifier links yet. They are created automatically when you import Square sales, or add one manually.
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = db.modifierLinks.map((ml, idx) => {
+    const type = ml.type || modifierType(ml.pattern || '');
+    const ingOpts = '<option value="">— no link —</option>' +
+      db.ingredients.map(i =>
+        `<option value="${i.id}"${ml.ingredientId === i.id ? ' selected' : ''}>${i.name} (${i.recipeUnit})</option>`
+      ).join('');
+    const unitOpts = MOD_UNITS.map(u => `<option${(ml.unit || 'g') === u ? ' selected' : ''}>${u}</option>`).join('');
+    const safePattern = (ml.pattern || '').replace(/"/g, '&quot;');
+
+    // Cost cell: auto-computed from WAC when ingredient is linked, else manual entry
+    let costCell;
+    if (ml.ingredientId && ml.qty) {
+      const ing = db.ingredients.find(i => i.id === ml.ingredientId);
+      const autoCost = ing ? effectiveCost(ing) * (ml.qty || 0) : 0;
+      costCell = `<td style="font-size:.8rem">
+        <span style="color:var(--accent2);font-weight:600">$${fmt(autoCost)}</span>
+        <div style="font-size:.7rem;color:var(--muted)">auto</div>
+      </td>`;
+    } else {
+      costCell = `<td><input type="number" step="0.01" min="0" placeholder="0.00"
+        value="${ml.extraCost || ''}" style="width:65px;font-size:.8rem"
+        oninput="updateModifierLinkByIdx(${idx},'extraCost',this.value)"></td>`;
+    }
+
+    return `<tr>
+      <td><span class="badge ${type === 'add' ? 'bg' : type === 'remove' ? 'br' : 'bw'}">${type === 'add' ? '+ ADD' : type === 'remove' ? '− REM' : 'neutral'}</span></td>
+      <td><input value="${safePattern}" style="font-size:.8rem;min-width:180px"
+        onchange="updateModifierLinkByIdx(${idx},'pattern',this.value)"></td>
+      <td><select style="font-size:.76rem;min-width:160px"
+        onchange="updateModifierLinkByIdx(${idx},'ingredientId',this.value)">${ingOpts}</select></td>
+      <td><input type="number" step="0.01" min="0" placeholder="0" value="${ml.qty || ''}"
+        style="width:60px;font-size:.8rem"
+        oninput="updateModifierLinkByIdx(${idx},'qty',this.value)"></td>
+      <td><select style="font-size:.76rem;width:58px"
+        onchange="updateModifierLinkByIdx(${idx},'unit',this.value)">${unitOpts}</select></td>
+      ${costCell}
+      <td><button class="btn btn-danger btn-sm" onclick="deleteModifierLink(${idx})">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function updateModifierLinkByIdx(idx, field, val) {
+  if (!db.modifierLinks || !db.modifierLinks[idx]) return;
+  const ml = db.modifierLinks[idx];
+  if (field === 'qty' || field === 'extraCost') {
+    ml[field] = parseFloat(val) || 0;
+  } else {
+    ml[field] = val;
+  }
+  // Re-derive type when pattern changes; refresh cost display when ingredient/qty changes
+  if (field === 'pattern') {
+    ml.type = modifierType(val);
+    renderModifierLinks();
+  } else if (field === 'ingredientId' || field === 'qty') {
+    renderModifierLinks(); // refresh auto-cost display
+  }
+  saveDB();
+}
+
+function deleteModifierLink(idx) {
+  if (!confirm('Remove this modifier link?')) return;
+  db.modifierLinks.splice(idx, 1);
+  saveDB();
+  renderModifierLinks();
+}
+
+function addModifierLink() {
+  if (!db.modifierLinks) db.modifierLinks = [];
+  db.modifierLinks.push({ pattern: '', type: 'neutral', ingredientId: null, qty: 0, unit: 'g', extraCost: 0 });
+  saveDB();
+  renderModifierLinks();
 }
 
 // ── IMPORT LOG ───────────────────────────────────────────────────────────────
@@ -555,7 +1145,7 @@ function renderImportLog() {
     <td>${l.date}</td><td>${l.supplierName||'—'}</td>
     <td style="font-size:.78rem">${l.filename}</td>
     <td><span class="badge ${l.type==='invoice'?'bp':'bg'}">${l.type==='invoice'?'Invoice':'Sales'}</span></td>
-    <td>${l.matchedCount??l.itemCount}/${l.itemCount}</td>
+    <td>${l.matchedCount??l.itemCount}/${l.itemCount}${l.linkedCount != null ? `<div class="muted">${l.linkedCount} with recipe</div>` : ''}</td>
     <td>$${fmt(l.totalValue)}</td>
     <td><span class="badge bg">✓ ${l.status}</span>${l.skippedItems?.length ? `<div class="muted">${l.skippedItems.length} skipped</div>` : ''}</td>
     <td><button class="btn btn-ghost btn-sm" onclick="reOpenImport('${l.id}')">Re-review</button></td>
@@ -568,7 +1158,7 @@ function reOpenImport(id) {
     pendingSalesImport = { file: { name: log.filename }, data: JSON.parse(JSON.stringify(log.data)), isSquare: true };
     document.getElementById('sales-ai-status').style.display = 'none';
     document.getElementById('sales-ai-content').innerHTML = '';
-    renderSquareSalesReview(pendingSalesImport.data, getDeliveryCommission());
+    renderSquareSalesReview(pendingSalesImport.data);
     document.getElementById('sales-ai-approve').style.display = 'inline-block';
     openModal('modal-sales-ai');
   } else {
@@ -579,7 +1169,7 @@ function reOpenImport(id) {
   }
 }
 
-// ── AI PROMPTS (invoice scanning only) ───────────────────────────────────────
+// ── AI PROMPTS ───────────────────────────────────────────────────────────────
 function invoiceExtractPrompt(text) {
   return `Extract all product/ingredient line items from this supplier invoice. Return ONLY a valid JSON array, no markdown.
 Each object: name(string), buy_unit(string: carton/case/bag/box/each/dozen/kg/L/lb/g/ml), buy_qty(number), total_price(number for this line), pack_count(number or null), pack_size(number or null), pack_unit(string: g/ml/kg/L), recipe_unit(string: g/ml/each), notes(string or "").

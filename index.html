@@ -25,6 +25,8 @@
   <button onclick="goPage('sales',this)">💰 Sales</button>
   <button onclick="goPage('reports',this)">📈 Reports</button>
   <button onclick="goPage('import',this)">📁 Import</button>
+  <button onclick="goPage('inventory',this)">📦 Inventory</button>
+  <button onclick="goPage('production',this)">🏭 Production</button>
 </nav>
 
 <main>
@@ -41,28 +43,49 @@
 
   <!-- SUPPLIERS -->
   <div id="page-suppliers" class="page">
-    <div class="fb"><h2>Suppliers</h2><button class="btn btn-primary" onclick="openSupModal()">+ Add Supplier</button></div>
+    <div class="fb"><h2>Suppliers</h2><div class="flex"><button class="btn btn-ghost" onclick="exportSuppliersCSV()">⬇ Export CSV</button><button class="btn btn-primary" onclick="openSupModal()">+ Add Supplier</button></div></div>
+    <div class="search-wrap"><input id="sup-search" placeholder="Search…" oninput="renderSuppliers()"></div>
     <div class="card" style="padding:0;overflow:hidden">
-      <table><thead><tr><th>Name</th><th>Contact</th><th>Phone</th><th>Email</th><th>Notes</th><th></th></tr></thead>
+      <table><thead><tr>
+        <th id="th-sup-name"    onclick="sortTbl('sup','name',renderSuppliers)"    style="cursor:pointer">Name</th>
+        <th id="th-sup-contact" onclick="sortTbl('sup','contact',renderSuppliers)" style="cursor:pointer">Contact</th>
+        <th>Phone</th><th>Email</th><th>Notes</th><th></th>
+      </tr></thead>
       <tbody id="sup-table"></tbody></table>
     </div>
   </div>
 
   <!-- INGREDIENTS -->
   <div id="page-ingredients" class="page">
-    <div class="fb"><h2>Ingredients <span class="wac-badge">WAC</span></h2><button class="btn btn-primary" onclick="openIngModal()">+ Add Ingredient</button></div>
+    <div class="fb"><h2>Ingredients <span class="wac-badge">WAC</span></h2><div class="flex"><button class="btn btn-ghost" onclick="exportIngredientsCSV()">⬇ Export CSV</button><button class="btn btn-primary" onclick="openIngModal()">+ Add Ingredient</button></div></div>
     <div class="search-wrap"><input id="ing-search" placeholder="Search…" oninput="renderIngredients()"></div>
     <div class="card" style="padding:0;overflow:hidden">
-      <table><thead><tr><th>Name</th><th>Category</th><th>Yield %</th><th>WAC/RU</th><th>Effective Cost/RU</th><th>Recipe Unit</th><th>Purchases</th><th></th></tr></thead>
+      <table><thead><tr>
+        <th id="th-ing-name"  onclick="sortTbl('ing','name',renderIngredients)"  style="cursor:pointer">Name</th>
+        <th id="th-ing-cat"   onclick="sortTbl('ing','cat',renderIngredients)"   style="cursor:pointer">Category</th>
+        <th id="th-ing-yield" onclick="sortTbl('ing','yield',renderIngredients)" style="cursor:pointer">Yield %</th>
+        <th id="th-ing-wac"   onclick="sortTbl('ing','wac',renderIngredients)"   style="cursor:pointer">WAC/RU</th>
+        <th id="th-ing-eff"   onclick="sortTbl('ing','eff',renderIngredients)"   style="cursor:pointer">Effective Cost/RU</th>
+        <th>Recipe Unit</th><th>Purchases</th><th></th>
+      </tr></thead>
       <tbody id="ing-table"></tbody></table>
     </div>
   </div>
 
   <!-- RECIPES -->
   <div id="page-recipes" class="page">
-    <div class="fb"><h2>Recipes</h2><button class="btn btn-primary" onclick="openRecipeModal()">+ New Recipe</button></div>
+    <div class="fb"><h2>Recipes</h2><div class="flex"><button class="btn btn-ghost" onclick="exportRecipesCSV()">⬇ Export CSV</button><button class="btn btn-primary" onclick="openRecipeModal()">+ New Recipe</button></div></div>
+    <div class="search-wrap"><input id="recipe-search" placeholder="Search name or category…" oninput="renderRecipes()"></div>
     <div class="card" style="padding:0;overflow:hidden">
-      <table><thead><tr><th>Name</th><th>Type</th><th>Lines</th><th>Raw WAC Cost</th><th>Yield-adj Cost</th><th></th></tr></thead>
+      <table><thead><tr>
+        <th id="th-rec-name"  onclick="sortTbl('rec','name',renderRecipes)"  style="cursor:pointer">Name</th>
+        <th id="th-rec-cat"   onclick="sortTbl('rec','cat',renderRecipes)"   style="cursor:pointer">Category</th>
+        <th>Type</th>
+        <th id="th-rec-lines" onclick="sortTbl('rec','lines',renderRecipes)" style="cursor:pointer">Lines</th>
+        <th id="th-rec-raw"   onclick="sortTbl('rec','raw',renderRecipes)"   style="cursor:pointer">Raw WAC Cost</th>
+        <th id="th-rec-adj"   onclick="sortTbl('rec','adj',renderRecipes)"   style="cursor:pointer">Yield-adj Cost</th>
+        <th></th>
+      </tr></thead>
       <tbody id="recipe-table"></tbody></table>
     </div>
   </div>
@@ -70,9 +93,44 @@
   <!-- MENU -->
   <div id="page-menu" class="page">
     <div class="fb"><h2>Menu Items</h2><button class="btn btn-primary" onclick="openMenuModal()">+ Add Item</button></div>
+    <div class="search-wrap"><input id="menu-search" placeholder="Search name or category…" oninput="renderMenu()"></div>
     <div class="card" style="padding:0;overflow:hidden">
-      <table><thead><tr><th>Item</th><th>Recipe</th><th>Sell $</th><th>Food Cost</th><th>Cost %</th><th>Gross Profit</th><th></th></tr></thead>
+      <table><thead><tr>
+        <th id="th-menu-name"   onclick="sortTbl('menu','name',renderMenu)"   style="cursor:pointer">Item</th>
+        <th id="th-menu-cat"    onclick="sortTbl('menu','cat',renderMenu)"    style="cursor:pointer">Category</th>
+        <th>Recipe</th>
+        <th id="th-menu-sell"   onclick="sortTbl('menu','sell',renderMenu)"   style="cursor:pointer">Sell $</th>
+        <th id="th-menu-cost"   onclick="sortTbl('menu','cost',renderMenu)"   style="cursor:pointer">Food Cost</th>
+        <th id="th-menu-pct"    onclick="sortTbl('menu','pct',renderMenu)"    style="cursor:pointer">Cost %</th>
+        <th id="th-menu-profit" onclick="sortTbl('menu','profit',renderMenu)" style="cursor:pointer">Gross Profit</th>
+        <th></th>
+      </tr></thead>
       <tbody id="menu-table"></tbody></table>
+    </div>
+
+    <!-- Modifier Library -->
+    <div class="fb" style="margin-top:24px">
+      <div>
+        <div class="muted">MODIFIERS</div>
+        <div style="font-size:.75rem;color:var(--muted);margin-top:2px">Link Square modifiers to ingredients — used for inventory variance and cost snapshots</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="addModifierLink()">+ Add Modifier</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-top:8px">
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th style="width:70px">Type</th>
+            <th>Modifier Text (from Square)</th>
+            <th>Ingredient</th>
+            <th style="width:70px">Qty</th>
+            <th style="width:70px">Unit</th>
+            <th style="width:80px" title="Auto-calculated from ingredient WAC × qty when linked; manual entry otherwise">Cost $</th>
+            <th style="width:40px"></th>
+          </tr></thead>
+          <tbody id="modifier-links-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -120,6 +178,28 @@
           </div>
         </div>
       </div>
+      <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+        <div class="muted" style="margin-bottom:10px">SUNDRY ANALYSIS
+          <span class="muted" style="font-size:.74rem;font-weight:400;margin-left:8px">— set Sundry % on recipes &amp; categorise oil/salt/herbs as "Sundry" ingredients to track here</span>
+        </div>
+        <div class="stat-grid" id="rpt-sundry-stats"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px">
+          <div>
+            <div class="muted" style="margin-bottom:6px;font-size:.76rem">THEORETICAL (sundry % × recipe cost × qty sold)</div>
+            <div class="card" style="padding:0;overflow:hidden">
+              <table><thead><tr><th>Recipe</th><th>Sold</th><th>Sundry %</th><th>Est. Cost</th></tr></thead>
+              <tbody id="rpt-sundry-theory"></tbody></table>
+            </div>
+          </div>
+          <div>
+            <div class="muted" style="margin-bottom:6px;font-size:.76rem">ACTUAL SPEND ("Sundry" category ingredient purchases)</div>
+            <div class="card" style="padding:0;overflow:hidden">
+              <table><thead><tr><th>Ingredient</th><th>Purchases</th><th>Spend</th></tr></thead>
+              <tbody id="rpt-sundry-actual"></tbody></table>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -136,18 +216,129 @@
         </div>
       </div>
       <div class="card">
-        <div class="muted" style="margin-bottom:8px">SQUARE SALES EXPORT</div>
-        <div class="upload-zone" onclick="document.getElementById('sales-file').click()">
-          <input type="file" id="sales-file" accept=".pdf,.csv" onchange="startSalesImport(this)">
-          <div style="font-size:1.8rem">💳</div>
-          <p style="color:var(--muted);font-size:.82rem;margin-top:6px">Upload PDF or CSV</p>
+        <div class="muted" style="margin-bottom:8px">SQUARE SALES</div>
+        <div style="display:flex;gap:6px;margin-bottom:12px">
+          <button id="sq-tab-api-btn" class="btn btn-primary btn-sm" onclick="switchSqTab('api')">🔌 Direct API</button>
+          <button id="sq-tab-csv-btn" class="btn btn-ghost btn-sm" onclick="switchSqTab('csv')">📄 CSV Upload</button>
+        </div>
+        <!-- Direct API tab -->
+        <div id="sq-api-tab">
+          <div class="form-row c2" style="margin-bottom:10px">
+            <div><label>From</label><input id="sq-from" type="date"></div>
+            <div><label>To</label><input id="sq-to" type="date"></div>
+          </div>
+          <button id="sq-fetch-btn" class="btn btn-primary" onclick="fetchFromSquare(document.getElementById('sq-from').value,document.getElementById('sq-to').value)">Fetch from Square</button>
+        </div>
+        <!-- CSV Upload tab -->
+        <div id="sq-csv-tab" style="display:none">
+          <div class="upload-zone" onclick="document.getElementById('sales-file').click()">
+            <input type="file" id="sales-file" accept=".csv" onchange="startSalesImport(this)">
+            <div style="font-size:1.8rem">💳</div>
+            <p style="color:var(--muted);font-size:.82rem;margin-top:6px">Upload Square Items CSV</p>
+          </div>
         </div>
       </div>
     </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="fb" style="margin-bottom:10px">
+        <div>
+          <div class="muted">EMAIL INVOICE QUEUE</div>
+          <div class="muted" style="font-size:.75rem;margin-top:2px">Supplier invoices auto-processed from Gmail via Google Apps Script</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="pollEmailQueue()">↻ Check for New</button>
+      </div>
+      <div id="email-queue-list"><div class="muted" style="font-size:.82rem">Configure Gmail Invoice Queue URL in Settings (⚙) to enable.</div></div>
+    </div>
+
     <div class="fb"><div class="muted">IMPORT HISTORY</div><button class="btn btn-ghost btn-sm" onclick="renderImportLog()">↻ Refresh</button></div>
     <div class="card" style="padding:0;overflow:hidden">
       <table><thead><tr><th>Date</th><th>Supplier</th><th>Filename</th><th>Type</th><th>Matched</th><th>Total $</th><th>Status</th><th></th></tr></thead>
       <tbody id="import-log-table"></tbody></table>
+    </div>
+  </div>
+
+
+  <!-- INVENTORY -->
+  <div id="page-inventory" class="page">
+
+    <!-- List Section -->
+    <div id="inv-list-section">
+      <div class="fb">
+        <h2>Inventory <span class="muted" style="font-size:.8rem;font-weight:400">Stock counts &amp; variance tracking</span></h2>
+        <button class="btn btn-primary" onclick="openStockCountModal()">+ New Stock Count</button>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead><tr><th>Period</th><th>Ingredients</th><th>Note</th><th></th></tr></thead>
+          <tbody id="inv-table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Variance Section (hidden by default) -->
+    <div id="inv-variance-section" style="display:none">
+      <div class="fb">
+        <div>
+          <h2>Variance Report</h2>
+          <div class="muted" id="inv-variance-period" style="font-size:.82rem;margin-top:3px"></div>
+        </div>
+        <div class="flex">
+          <button class="btn btn-ghost" onclick="exportVarianceCSV(invCurrentSCId)">⬇ Export CSV</button>
+          <button class="btn btn-ghost" onclick="backToInventoryList()">← Back to List</button>
+        </div>
+      </div>
+      <div class="card">
+        <p style="font-size:.78rem;color:var(--muted);margin-bottom:12px">
+          <strong style="color:var(--danger)">Positive variance</strong> = used more than expected (waste / theft / over-portioning).
+          <strong style="color:var(--accent2)">Negative</strong> = used less (under-portioning or recipe qty is set too high).
+        </p>
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Ingredient</th>
+                <th>Opening Stock</th>
+                <th>Purchases in Period</th>
+                <th>Closing Stock</th>
+                <th>Actual Usage</th>
+                <th>Theoretical Usage</th>
+                <th>Variance</th>
+                <th>Unit</th>
+              </tr>
+            </thead>
+            <tbody id="inv-variance-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+
+  <!-- PRODUCTION -->
+  <div id="page-production" class="page">
+    <div class="fb">
+      <div>
+        <h2>Production <span class="muted" style="font-size:.8rem;font-weight:400">Batch production log</span></h2>
+        <div style="font-size:.75rem;color:var(--muted);margin-top:3px">
+          Log batches here to track raw ingredient consumption and update finished-goods WAC.
+          Mark a recipe as "Batch production" in Recipes first.
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="openProductionModal()">+ Log Batch</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;margin-top:12px">
+      <table>
+        <thead><tr>
+          <th>Date</th>
+          <th>Recipe</th>
+          <th>Portions Made</th>
+          <th>Batch Cost</th>
+          <th>Note</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="prod-table"></tbody>
+      </table>
     </div>
   </div>
 
@@ -228,9 +419,23 @@
   <div class="modal" style="max-width:820px">
     <h3 id="ing-detail-title">Ingredient Detail</h3>
     <div id="ing-detail-top"></div>
-    <div class="form-row c2" style="margin-top:10px">
-      <div><label>Yield % (edit)</label><input id="detail-yield" type="number" min="1" max="100" oninput="previewYield()"></div>
-      <div style="display:flex;align-items:flex-end"><button class="btn btn-ghost btn-sm" onclick="saveYield()">Update Yield</button></div>
+    <div class="form-row c3" style="margin-top:10px">
+      <div><label>Name *</label><input id="detail-name" placeholder="Ingredient name"></div>
+      <div><label>Category</label><input id="detail-cat" placeholder="e.g. Meat"></div>
+      <div><label>Supplier</label><select id="detail-sup"></select></div>
+    </div>
+    <div class="form-row c3">
+      <div>
+        <label>Recipe Unit (UOM)</label>
+        <select id="detail-ru">
+          <option value="g">g</option><option value="ml">ml</option><option value="each">each</option>
+        </select>
+        <div class="muted" style="font-size:.7rem;margin-top:3px">⚠ Changing UOM does not recalculate existing WAC values</div>
+      </div>
+      <div><label>Yield %</label><input id="detail-yield" type="number" min="1" max="100" oninput="previewYield()"></div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="btn btn-primary btn-sm" onclick="saveIngredientInfo()">Save Changes</button>
+      </div>
     </div>
     <div id="detail-yield-preview" class="cb" style="display:none;margin-bottom:8px"></div>
     <hr class="divider">
@@ -281,7 +486,23 @@
         </select>
       </div>
     </div>
-    <div><label>Yield description</label><input id="recipe-yield" placeholder="e.g. Makes 4 portions"></div>
+    <div class="form-row c2">
+      <div><label>Category</label><input id="recipe-cat" placeholder="e.g. Sauces, Mains"></div>
+      <div><label>Yield description</label><input id="recipe-yield" placeholder="e.g. Makes 4 portions"></div>
+    </div>
+    <div style="margin-top:10px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
+        <input type="checkbox" id="recipe-batch" style="width:auto;margin:0;cursor:pointer">
+        <span>Batch production recipe <span class="muted" style="font-weight:400">(portions produced in bulk — log batches in Production tab to track raw ingredient usage &amp; finished-goods WAC)</span></span>
+      </label>
+    </div>
+    <div style="margin-top:8px">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:.88rem">
+        Sundry %
+        <input type="number" id="recipe-sundry" min="0" max="20" step="0.5" style="width:70px" placeholder="0" oninput="updateRCP()">
+        <span class="muted" style="font-size:.78rem">(blanket % for salt, oil, herbs &amp; other unmeasurables — leave 0 if not used)</span>
+      </label>
+    </div>
     <div style="margin-top:14px">
       <div class="fb" style="margin-bottom:6px">
         <div class="muted">LINES (qty in recipe units)</div>
@@ -371,7 +592,68 @@
   </div>
 </div>
 
+<!-- Stock Count -->
+<div class="modal-overlay" id="modal-stock-count">
+  <div class="modal" style="max-width:860px">
+    <h3 id="sc-modal-title">New Stock Count</h3>
+    <div class="form-row c3">
+      <div><label>Period Start *</label><input id="sc-from" type="date"></div>
+      <div><label>Period End *</label><input id="sc-to" type="date"></div>
+      <div><label>Note <span class="muted">(optional)</span></label><input id="sc-note" placeholder="e.g. Week 8"></div>
+    </div>
+    <hr class="divider">
+    <div class="fb" style="margin-bottom:6px">
+      <div>
+        <div class="muted" style="font-size:.76rem;text-transform:uppercase;letter-spacing:.04em">Ingredient Lines</div>
+        <div class="muted" style="font-size:.72rem;margin-top:2px">Enter quantities in purchase units (kg, carton, etc.)</div>
+      </div>
+      <div class="flex">
+        <button class="btn btn-ghost btn-sm" onclick="downloadSCTemplate()">⬇ Template</button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">⬆ Import CSV
+          <input type="file" accept=".csv" style="display:none" onchange="importSCFromCSV(this)">
+        </label>
+        <button class="btn btn-ghost btn-sm" onclick="addSCLine()">+ Add Ingredient</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 110px 90px auto;gap:6px;padding:4px 0">
+      <div class="muted" style="font-size:.72rem">Ingredient</div>
+      <div class="muted" style="font-size:.72rem">Count Qty</div>
+      <div class="muted" style="font-size:.72rem">Unit</div>
+      <div></div>
+    </div>
+    <div id="sc-lines" style="max-height:360px;overflow-y:auto"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-stock-count')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStockCount()">Save Stock Count</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
+
+<!-- Production Batch -->
+<div class="modal-overlay" id="modal-production">
+  <div class="modal" style="max-width:520px">
+    <h3 id="prod-modal-title">Log Production Batch</h3>
+    <div class="form-row c2">
+      <div><label>Date *</label><input id="prod-date" type="date"></div>
+      <div><label>Portions Produced *</label><input id="prod-qty" type="number" min="1" step="1" placeholder="e.g. 14" oninput="updateProductionPreview()"></div>
+    </div>
+    <div>
+      <label>Batch Recipe * <span class="muted">(only batch-enabled recipes shown)</span></label>
+      <select id="prod-recipe" onchange="updateProductionPreview()"><option value="">— Select —</option></select>
+    </div>
+    <div style="margin-top:10px">
+      <label>Note <span class="muted">(optional)</span></label>
+      <input id="prod-note" placeholder="e.g. Saturday batch">
+    </div>
+    <div id="prod-preview"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-production')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProductionBatch()">Save Batch</button>
+    </div>
+  </div>
+</div>
 
 <!-- Settings -->
 <div class="modal-overlay" id="modal-settings">
@@ -403,6 +685,40 @@
 
     <hr class="divider">
 
+    <div style="margin-bottom:16px">
+      <label>Square Access Token <span class="muted">(for Direct API fetch)</span></label>
+      <input id="set-sq-token" type="password" placeholder="sandbox-... or production token" autocomplete="off" style="margin-top:6px">
+      <div class="muted" style="margin-top:4px">Stored locally. Get from Square Developer Dashboard → Applications → Access Token.</div>
+      <label style="margin-top:10px;display:block">Square Location ID(s)</label>
+      <input id="set-sq-location" placeholder="e.g. L1234ABCDE, LYYYYYYYYYY" autocomplete="off" style="margin-top:6px">
+      <div class="muted" style="margin-top:4px">Found in Square Dashboard → Account &amp; Settings → Business locations. Separate multiple IDs with commas to fetch POS + Online in one go.</div>
+    </div>
+
+    <hr class="divider">
+
+    <div style="margin-bottom:16px">
+      <label>Firebase Database URL <span class="muted">(for tablet stock takes)</span></label>
+      <input id="settings-fb-url" placeholder="https://your-project-default-rtdb.firebaseio.com" autocomplete="off" style="margin-top:6px">
+      <div class="muted" style="margin-top:4px">Stored locally. Used to sync ingredients to tablet and import stock counts.</div>
+      <div class="flex" style="gap:8px;margin-top:10px">
+        <button class="btn btn-ghost btn-sm" onclick="syncIngredientsToFirebase()">↑ Sync Ingredients to Tablet</button>
+        <button class="btn btn-ghost btn-sm" onclick="importStockCountsFromFirebase()">↓ Import Stock Counts</button>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div style="margin-bottom:16px">
+      <label>Gmail Invoice Queue <span class="muted">(Google Apps Script Web App URL)</span></label>
+      <input id="settings-gmail-url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" style="margin-top:6px">
+      <div class="muted" style="margin-top:4px">Deploy <code>gmail-invoice-script/Code.gs</code> as a Web App and paste the URL here. Supplier invoices emailed to your Gmail will auto-appear in the import queue.</div>
+      <label style="margin-top:10px;display:block">Supplier Whitelist <span class="muted">(one email address per line)</span></label>
+      <textarea id="settings-gmail-whitelist" rows="4" placeholder="invoices@bidvest.com.au&#10;orders@romafoods.com.au" style="width:100%;margin-top:6px;resize:vertical;background:var(--bg2);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:.84rem"></textarea>
+      <div class="muted" style="margin-top:4px">Must match the sender addresses configured in Code.gs SUPPLIER_WHITELIST.</div>
+    </div>
+
+    <hr class="divider">
+
     <div style="margin-bottom:14px">
       <label>Data Management</label>
       <div class="flex" style="gap:8px;margin-top:6px">
@@ -426,7 +742,9 @@
 <script src="js/recipes.js"></script>
 <script src="js/sales.js"></script>
 <script src="js/reports.js"></script>
+<script src="js/inventory.js"></script>
 <script src="js/import.js"></script>
+<script src="js/production.js"></script>
 <script src="js/app.js"></script>
 
 </body>

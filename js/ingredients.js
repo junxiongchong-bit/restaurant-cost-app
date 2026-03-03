@@ -106,6 +106,28 @@ function saveIngredient() {
   saveDB(); closeModal('modal-ing'); renderIngredients(); toast('Ingredient added.');
 }
 
+function exportIngredientsCSV() {
+  const rows = [['Name', 'Category', 'Supplier', 'Recipe Unit', 'Yield %', 'WAC per RU', 'Effective Cost per RU', 'Active Purchases']];
+  db.ingredients.forEach(i => {
+    const sup = db.suppliers.find(s => s.id === i.supplierId);
+    const eff = effectiveCost(i);
+    rows.push([
+      i.name,
+      i.category || '',
+      sup ? sup.name : '',
+      i.recipeUnit,
+      i.yield || 100,
+      fmt(i.wac || 0, 5),
+      fmt(eff, 5),
+      (i.purchases || []).filter(p => !p.obsolete).length
+    ]);
+  });
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n'));
+  a.download = `ingredients_${todayStr()}.csv`;
+  a.click();
+}
+
 function deleteIngredient(id) {
   if(!confirm('Delete?')) return;
   db.ingredients = db.ingredients.filter(x => x.id !== id);
@@ -116,9 +138,13 @@ function deleteIngredient(id) {
 function openIngDetail(id) {
   detailIngId = id;
   const ing = db.ingredients.find(x => x.id === id);
-  document.getElementById('ing-detail-title').textContent = ing.name + ' — Detail';
-  document.getElementById('detail-yield').value = ing.yield||100;
+  document.getElementById('ing-detail-title').textContent = ing.name + (ing.category ? ' — ' + ing.category : '') + ' — Detail';
+  document.getElementById('detail-name').value  = ing.name;
+  document.getElementById('detail-cat').value   = ing.category || '';
+  document.getElementById('detail-ru').value    = ing.recipeUnit || 'g';
+  document.getElementById('detail-yield').value = ing.yield || 100;
   document.getElementById('detail-yield-preview').style.display = 'none';
+  populateSupSel('detail-sup', ing.supplierId || '');
   populateSupSel('pur-sup', ing.supplierId||'');
   document.getElementById('pur-date').value = todayStr();
   ['pur-qty','pur-pack-count','pur-pack-size','pur-price'].forEach(x => document.getElementById(x).value = '');
@@ -128,6 +154,21 @@ function openIngDetail(id) {
   renderIngDetailTop(ing);
   renderPurchaseHistory(ing);
   openModal('modal-ing-detail');
+}
+
+function saveIngredientInfo() {
+  const ing = db.ingredients.find(x => x.id === detailIngId); if (!ing) return;
+  const name = document.getElementById('detail-name').value.trim();
+  if (!name) { toast('Name required.', 'error'); return; }
+  ing.name       = name;
+  ing.category   = document.getElementById('detail-cat').value.trim();
+  ing.supplierId = document.getElementById('detail-sup').value;
+  ing.recipeUnit = document.getElementById('detail-ru').value;
+  ing.yield      = parseFloat(document.getElementById('detail-yield').value) || 100;
+  recalcWAC(ing);
+  document.getElementById('ing-detail-title').textContent = ing.name + (ing.category ? ' — ' + ing.category : '') + ' — Detail';
+  saveDB(); renderIngDetailTop(ing); renderIngredients();
+  toast('Ingredient updated.');
 }
 
 function renderIngDetailTop(ing) {
@@ -257,7 +298,14 @@ function addPurchase() {
 
 function renderIngredients() {
   const q = (document.getElementById('ing-search')?.value||'').toLowerCase();
-  const rows = db.ingredients.filter(i => i.name.toLowerCase().includes(q));
+  let rows = db.ingredients.filter(i => i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q));
+  rows = sortApply(rows, 'ing', (i, col) => ({
+    name: i.name, cat: i.category||'', yield: i.yield||100, wac: i.wac||0, eff: effectiveCost(i)
+  })[col] ?? i.name);
+  applyHdrs('ing', {
+    'th-ing-name': ['name','Name'], 'th-ing-cat': ['cat','Category'],
+    'th-ing-yield': ['yield','Yield %'], 'th-ing-wac': ['wac','WAC/RU'], 'th-ing-eff': ['eff','Effective Cost/RU']
+  });
   const tb = document.getElementById('ing-table');
   if(!rows.length) {
     tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">No ingredients.</td></tr>'; return;
