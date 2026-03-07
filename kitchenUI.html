@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Kitchen</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #232636;
+      --border: #2e3147; --accent: #6c63ff; --accent2: #4ecca3;
+      --danger: #ff6b6b; --warn: #ffd93d; --text: #e8e8f0; --muted: #8888aa;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 16px; }
+
+    header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 14px; height: 56px; gap: 10px;
+    }
+    .logo { font-size: 1.1rem; font-weight: 700; color: var(--accent2); white-space: nowrap; }
+    header nav { display: flex; gap: 4px; margin-left: auto; }
+    header nav button {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: .85rem; font-weight: 600; padding: 8px 14px; border-radius: 6px; transition: .15s;
+    }
+    header nav button.active { background: var(--accent); color: #fff; }
+
+    main { padding-top: 56px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    #screen-loading {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: calc(100vh - 56px); color: var(--muted);
+    }
+    .spinner {
+      width: 36px; height: 36px; border: 3px solid var(--border);
+      border-top-color: var(--accent2); border-radius: 50%;
+      animation: spin .7s linear infinite; margin-bottom: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .btn { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: .95rem; font-weight: 600; transition: .15s; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-success { background: var(--accent2); color: #0f1117; }
+    .btn-ghost   { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-sm      { padding: 7px 13px; font-size: .82rem; }
+    .btn-warn    { background: var(--warn); color: #111; }
+    .btn-danger  { background: var(--danger); color: #fff; }
+    .btn:active  { opacity: .8; }
+    .btn:disabled { opacity: .4; pointer-events: none; }
+
+    .date-nav {
+      display: flex; align-items: center; justify-content: center;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 10px 8px; position: sticky; top: 56px; z-index: 40;
+    }
+    .date-nav .nav-btn {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 1.8rem; padding: 2px 20px; line-height: 1; user-select: none; transition: color .15s;
+    }
+    .date-nav .nav-btn:active { color: var(--accent2); }
+    .date-nav .nav-btn.disabled { opacity: .2; pointer-events: none; }
+    .date-label { font-size: 1rem; font-weight: 700; min-width: 220px; text-align: center; user-select: none; }
+    .today-badge {
+      font-size: .68rem; color: var(--accent2); margin-left: 8px;
+      background: rgba(78,204,163,.15); padding: 2px 7px; border-radius: 10px; vertical-align: middle;
+    }
+
+    .section-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 16px; background: var(--surface2);
+      border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    }
+    .s-label { font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .s-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+    .pbar  { height: 7px; background: var(--border); border-radius: 4px; overflow: hidden; flex: 1; }
+    .pfill { height: 100%; border-radius: 4px; transition: width .3s; }
+    #prep-overall { display: flex; align-items: center; gap: 12px; padding: 10px 16px; }
+    .prog-label { font-size: .82rem; color: var(--muted); white-space: nowrap; }
+
+    .cat-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 16px; background: rgba(35,38,54,.9);
+      border-bottom: 1px solid var(--border);
+    }
+    .cat-name  { font-size: .8rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .cat-count { font-size: .75rem; color: var(--muted); margin-left: auto; white-space: nowrap; }
+
+    /* ── TASK ROW ── */
+    .task-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 0 16px; min-height: 56px; transition: background .15s;
+    }
+    .task-row.done { background: rgba(78,204,163,.07); }
+    .task-row.tappable { cursor: pointer; }
+    .task-row.tappable:active { background: rgba(108,99,255,.08); }
+    .task-row input[type=checkbox] { width: 22px; height: 22px; cursor: pointer; accent-color: var(--accent2); flex-shrink: 0; }
+    .task-row input[type=checkbox]:disabled { opacity: .35; }
+    .task-name { flex: 1; font-size: .95rem; }
+    .task-name.done { color: var(--muted); text-decoration: line-through; }
+    .task-target { font-size: .78rem; color: var(--muted); white-space: nowrap; }
+
+    /* ── YIELD PANEL (inline per task) ── */
+    .yield-panel {
+      padding: 14px 16px 16px;
+      background: rgba(26,29,39,.95);
+      border-top: 1px solid var(--border);
+      border-bottom: 2px solid var(--accent2);
+    }
+    .yp-weights { display: flex; gap: 10px; margin-bottom: 10px; }
+    .yp-col { flex: 1; }
+    .yp-col-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+    .yp-input-row { display: flex; gap: 6px; }
+    .yp-input-row input[type=number] {
+      flex: 1; padding: 12px 10px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 1rem;
+    }
+    .yp-input-row input[type=number]:focus { outline: none; border-color: var(--accent2); }
+    .yp-input-row select {
+      width: 66px; padding: 12px 4px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: .88rem; text-align: center;
+    }
+    .yp-preview {
+      min-height: 36px; margin-bottom: 12px;
+      display: flex; gap: 20px; align-items: center; font-size: .9rem; padding: 2px 0;
+    }
+    .yp-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* ── PRODUCTION ── */
+    .prod-card {
+      margin: 8px 14px; padding: 14px 16px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    }
+    .prod-recipe { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+    .prod-meta   { font-size: .84rem; color: var(--muted); }
+    .prod-note   { font-size: .82rem; color: var(--warn); margin-top: 6px; }
+    #log-prod-form {
+      margin: 10px 14px; padding: 16px;
+      background: var(--surface); border: 1px solid var(--accent); border-radius: 10px;
+    }
+    #log-prod-form h4 { font-size: .9rem; margin-bottom: 12px; color: var(--accent2); }
+    #log-prod-form select, #log-prod-form input {
+      width: 100%; padding: 10px 12px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      font-size: .9rem; margin-bottom: 10px;
+    }
+    #log-prod-form select:focus, #log-prod-form input:focus { outline: none; border-color: var(--accent2); }
+    .form-row { display: flex; gap: 10px; }
+    .form-row > * { flex: 1; }
+    .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+
+    /* ── STOCK TAKE ── */
+    .stock-cat-head {
+      padding: 9px 16px; background: var(--surface2);
+      border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+      font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    }
+    .stock-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 16px; border-bottom: 1px solid var(--border); min-height: 52px;
+    }
+    .stock-name       { flex: 1; font-size: .95rem; }
+    .stock-unit-label { font-size: .78rem; color: var(--muted); white-space: nowrap; width: 36px; }
+    .stock-input {
+      width: 90px; padding: 8px 10px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      font-size: .95rem; text-align: right; flex-shrink: 0;
+    }
+    .stock-input:focus  { outline: none; border-color: var(--accent2); }
+    .stock-input.filled { border-color: var(--accent2); background: rgba(78,204,163,.08); }
+    .stock-submit-bar {
+      position: sticky; bottom: 0; background: var(--surface);
+      border-top: 1px solid var(--border); padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .stock-submit-info { font-size: .82rem; color: var(--muted); }
+
+    .history-card {
+      margin: 8px 14px; padding: 14px 16px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    }
+    .hc-date  { font-size: .78rem; color: var(--muted); margin-bottom: 6px; }
+    .hc-lines { font-size: .82rem; color: var(--muted); line-height: 1.6; }
+
+    .status-bar {
+      background: var(--surface2); border-bottom: 1px solid var(--border);
+      padding: 6px 16px; font-size: .76rem; color: var(--muted);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: var(--accent2); }
+    .dot.red   { background: var(--danger); }
+
+    .empty { text-align: center; color: var(--muted); padding: 40px 20px; font-size: .9rem; line-height: 1.6; }
+
+    #toast {
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 20px; font-size: .88rem; z-index: 200;
+      opacity: 0; transition: opacity .3s; pointer-events: none; white-space: nowrap;
+    }
+    #toast.show    { opacity: 1; }
+    #toast.success { border-color: var(--accent2); color: var(--accent2); }
+    #toast.error   { border-color: var(--danger);  color: var(--danger);  }
+  </style>
+</head>
+<body>
+
+<header>
+  <span class="logo">🍽 Kitchen</span>
+  <nav>
+    <button class="active" id="tab-btn-prep"       onclick="showTab('prep')">Prep</button>
+    <button               id="tab-btn-production"  onclick="showTab('production')">Production</button>
+    <button               id="tab-btn-stock"       onclick="showTab('stock')">Stock Take</button>
+  </nav>
+</header>
+
+<main>
+
+  <div id="screen-loading">
+    <div class="spinner"></div>
+    <div>Loading from Firebase…</div>
+  </div>
+
+  <!-- ══ TAB: PREP (with inline yield logging) ══ -->
+  <div class="tab-content" id="tab-prep">
+
+    <div class="status-bar">
+      <div class="dot" id="prep-status-dot"></div>
+      <span id="prep-status-text"></span>
+      <button class="btn btn-sm btn-ghost" style="margin-left:auto;padding:4px 10px;font-size:.72rem" onclick="refreshAll()">↺ Refresh</button>
+    </div>
+
+    <div class="date-nav">
+      <button class="nav-btn" id="prep-btn-prev" onclick="prepChangeDate(-1)">&#8249;</button>
+      <div class="date-label" id="prep-date-label"></div>
+      <button class="nav-btn disabled" id="prep-btn-next" onclick="prepChangeDate(1)">&#8250;</button>
+    </div>
+
+    <div id="prep-overall">
+      <div class="pbar" style="height:9px"><div class="pfill" id="prep-overall-pfill"></div></div>
+      <span class="prog-label" id="prep-overall-label"></span>
+    </div>
+
+    <div id="prep-content"></div>
+
+  </div>
+
+  <!-- ══ TAB: PRODUCTION ══ -->
+  <div class="tab-content" id="tab-production">
+
+    <div class="date-nav">
+      <button class="nav-btn" id="prod-btn-prev" onclick="prodChangeDate(-1)">&#8249;</button>
+      <div class="date-label" id="prod-date-label"></div>
+      <button class="nav-btn disabled" id="prod-btn-next" onclick="prodChangeDate(1)">&#8250;</button>
+    </div>
+
+    <div class="section-head">
+      <span class="s-label">Batches Logged</span>
+      <div class="s-right">
+        <span id="prod-count" style="font-size:.78rem;color:var(--muted)"></span>
+        <button class="btn btn-sm btn-primary" id="log-prod-btn" onclick="toggleLogForm()">+ Log Batch</button>
+      </div>
+    </div>
+
+    <div id="log-prod-form" style="display:none">
+      <h4>Log Production Batch</h4>
+      <select id="lp-recipe"><option value="">— Select recipe —</option></select>
+      <div class="form-row">
+        <div><input type="number" id="lp-batches" placeholder="# of batches" min="1" step="1" value="1"></div>
+        <div><input type="text"   id="lp-note"    placeholder="Note (optional)"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-ghost btn-sm" id="lp-cancel-btn" onclick="toggleLogForm()">Cancel</button>
+        <button class="btn btn-success btn-sm" id="lp-submit-btn" onclick="submitProduction()">Submit</button>
+      </div>
+    </div>
+
+    <div id="prod-content"></div>
+
+  </div>
+
+  <!-- ══ TAB: STOCK TAKE ══ -->
+  <div class="tab-content" id="tab-stock">
+
+    <div class="status-bar">
+      <div class="dot green"></div>
+      <span>Enter counts then tap Submit</span>
+      <button class="btn btn-sm btn-ghost" style="margin-left:auto;padding:4px 10px;font-size:.72rem" onclick="clearStockCount()">Clear</button>
+    </div>
+
+    <div id="stock-content"></div>
+
+    <div class="stock-submit-bar">
+      <span class="stock-submit-info" id="stock-submit-info">0 items counted</span>
+      <button class="btn btn-success" id="stock-submit-btn" onclick="submitStockCount()" disabled>Submit Count</button>
+    </div>
+
+    <div class="section-head" style="margin-top:4px">
+      <span class="s-label">Recent Submissions</span>
+    </div>
+    <div id="stock-history" style="padding-bottom:80px"></div>
+
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────
+const FB_URL = 'https://restaurant-cost-app-default-rtdb.asia-southeast1.firebasedatabase.app';
+
+// ── UTILS ─────────────────────────────────────────────────────────────────
+const localDateStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const todayStr = () => localDateStr(new Date());
+const uid      = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+const PREP_CATS = ['Slice','Cook','Prep','Mix','Portion','Wash & Portion','Precook'];
+const WEIGHT_FACTORS = { g: 1, kg: 1000, lb: 453.592, oz: 28.3495 };
+function toGrams(qty, unit) { return qty * (WEIGHT_FACTORS[unit] || 1); }
+
+function toast(msg, type='success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  clearTimeout(t._t); t._t = setTimeout(() => t.className = '', 2800);
+}
+
+function fmtDate(str) {
+  if (!str) return '';
+  return new Date(str + 'T00:00:00').toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+}
+
+function setDateLabel(labelId, prevBtnId, nextBtnId, date) {
+  const isToday = date === todayStr();
+  document.getElementById(labelId).innerHTML =
+    fmtDate(date) + (isToday ? ' <span class="today-badge">TODAY</span>' : '');
+  document.getElementById(nextBtnId).classList.toggle('disabled', isToday);
+  document.getElementById(prevBtnId).classList.remove('disabled');
+}
+
+// ── STATE ─────────────────────────────────────────────────────────────────
+let prepTasks    = [];
+let batchRecipes = [];
+let ingredients  = [];
+let allProductions   = null;
+let allCounts        = null;
+let allYieldLogs     = null;
+let prepChecksCache  = {};
+let countLines       = {};
+const expandedPanels     = new Set();  // task IDs with open yield panel (undone tasks)
+const expandedEditPanels = new Set();  // task IDs with open edit panel (done tasks)
+
+let prepDate = todayStr();
+let prodDate = todayStr();
+
+// ── FIREBASE ──────────────────────────────────────────────────────────────
+async function fbGet(path) {
+  const r = await fetch(FB_URL + path + '.json');
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+async function fbPut(path, data) {
+  const r = await fetch(FB_URL + path + '.json', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+async function fbPost(path, data) {
+  const r = await fetch(FB_URL + path + '.json', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+// ── INIT ─────────────────────────────────────────────────────────────────
+async function init() {
+  document.getElementById('screen-loading').style.display = '';
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  try {
+    const [tasks, recipes, ings] = await Promise.all([
+      fbGet('/rcc/prepTasks').catch(() => []),
+      fbGet('/rcc/batchRecipes').catch(() => []),
+      fbGet('/rcc/ingredients').catch(() => []),
+    ]);
+    prepTasks    = Array.isArray(tasks)   ? tasks   : [];
+    batchRecipes = Array.isArray(recipes) ? recipes : [];
+    ingredients  = Array.isArray(ings)    ? ings    : [];
+
+    await Promise.all([
+      loadPrepChecks(prepDate),
+      loadAllProductions(),
+      loadAllYieldLogs(),
+    ]);
+
+    document.getElementById('screen-loading').style.display = 'none';
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = '');
+    showTab('prep');
+    populateLogForm();
+    setStatus(true);
+  } catch(e) {
+    document.getElementById('screen-loading').innerHTML =
+      `<div style="color:var(--danger);text-align:center;padding:40px 20px">
+        Firebase connection failed.<br><small style="color:var(--muted)">${e.message}</small><br><br>
+        <button class="btn btn-ghost btn-sm" onclick="init()">↺ Retry</button>
+      </div>`;
+  }
+}
+
+function setStatus(ok) {
+  const dot = document.getElementById('prep-status-dot');
+  const txt = document.getElementById('prep-status-text');
+  if (dot) dot.className = 'dot ' + (ok ? 'green' : 'red');
+  if (txt) txt.textContent = ok ? 'Firebase connected' : 'Connection error';
+}
+
+async function refreshAll() {
+  allProductions = null; allCounts = null; allYieldLogs = null;
+  prepChecksCache = {}; expandedPanels.clear(); expandedEditPanels.clear();
+  await init();
+}
+
+// ── TAB SWITCHING ─────────────────────────────────────────────────────────
+let currentTab = 'prep';
+function showTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('header nav button').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('tab-btn-' + tab).classList.add('active');
+  if (tab === 'prep')       { setDateLabel('prep-date-label','prep-btn-prev','prep-btn-next',prepDate); renderPrep(); }
+  if (tab === 'production') { setDateLabel('prod-date-label','prod-btn-prev','prod-btn-next',prodDate); renderProduction(); }
+  if (tab === 'stock')      { renderStock(); loadStockHistory(); }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// PREP TAB — with inline yield logging per task
+// ══════════════════════════════════════════════════════════════════════════
+function prepChangeDate(delta) {
+  const d = new Date(prepDate + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  const next = localDateStr(d);
+  if (next > todayStr()) return;
+  prepDate = next;
+  expandedPanels.clear(); expandedEditPanels.clear();
+  setDateLabel('prep-date-label','prep-btn-prev','prep-btn-next', prepDate);
+  loadPrepChecks(prepDate).then(() => renderPrep());
+}
+
+async function loadPrepChecks(date) {
+  if (prepChecksCache[date] !== undefined) return;
+  try {
+    const data = await fbGet('/rcc/prepDaily/' + date);
+    prepChecksCache[date] = data?.checks || {};
+  } catch(e) { prepChecksCache[date] = {}; }
+}
+
+async function loadAllYieldLogs() {
+  if (allYieldLogs !== null) return;
+  try {
+    const d = await fbGet('/rcc/pendingYieldLogs');
+    allYieldLogs = d ? Object.values(d) : [];
+  } catch(e) { allYieldLogs = []; }
+}
+
+function getTaskYieldToday(taskId) {
+  const entries = (allYieldLogs || []).filter(l => l.taskId === taskId && l.date === todayStr());
+  if (!entries.length) return null;
+  // Return latest entry (id is timestamp-based, lexicographic sort is chronological)
+  const latest = entries.sort((a, b) => (b.id||'').localeCompare(a.id||''))[0];
+  // If latest entry is a clear marker, treat as no yield
+  return latest.cleared ? null : latest;
+}
+
+function renderPrep() {
+  const isToday = prepDate === todayStr();
+  const checks  = prepChecksCache[prepDate] || {};
+  const total   = prepTasks.length;
+  const done    = prepTasks.filter(t => checks[t.id]?.done).length;
+  const pct     = total ? Math.round(done / total * 100) : 0;
+
+  document.getElementById('prep-overall-pfill').style.cssText =
+    `width:${pct}%;background:${pct===100?'var(--accent2)':'var(--accent)'}`;
+  document.getElementById('prep-overall-label').textContent = `${done} / ${total} done`;
+
+  const grouped = {};
+  PREP_CATS.forEach(c => grouped[c] = []);
+  prepTasks.forEach(t => { if (!grouped[t.category]) grouped[t.category] = []; grouped[t.category].push(t); });
+  const allCats = [...PREP_CATS, ...Object.keys(grouped).filter(c => !PREP_CATS.includes(c))];
+
+  document.getElementById('prep-content').innerHTML = allCats.map(cat => {
+    const tasks = (grouped[cat]||[]).sort((a,b) => (a.order??0)-(b.order??0));
+    if (!tasks.length) return '';
+    const catDone = tasks.filter(t => checks[t.id]?.done).length;
+    const catPct  = Math.round(catDone / tasks.length * 100);
+
+    return `
+      <div class="cat-head">
+        <span class="cat-name">${cat}</span>
+        <div class="pbar"><div class="pfill" style="width:${catPct}%;background:${catPct===100?'var(--accent2)':'var(--accent)'}"></div></div>
+        <span class="cat-count">${catDone}/${tasks.length}</span>
+      </div>
+      ${tasks.map(t => {
+        const c            = checks[t.id] || {};
+        const isDone       = !!c.done;
+        const isOpen       = expandedPanels.has(t.id)     && isToday && !isDone;
+        const isEditOpen   = expandedEditPanels.has(t.id) && isToday &&  isDone;
+        const yieldLog     = isToday ? getTaskYieldToday(t.id) : null;
+
+        // Right badge
+        let badge = '';
+        if (isDone && yieldLog && isToday) {
+          const iG  = toGrams(yieldLog.inputQty, yieldLog.inputUnit);
+          const oG  = toGrams(yieldLog.outputQty, yieldLog.outputUnit);
+          const yp  = iG > 0 ? (oG / iG * 100) : 0;
+          const col = yp >= 80 ? 'var(--accent2)' : yp >= 60 ? 'var(--warn)' : 'var(--danger)';
+          badge = `<span id="yb-${t.id}" style="font-size:.8rem;font-weight:700;color:${col}">${yp.toFixed(1)}% ${isEditOpen ? '▲' : '✏'}</span>`;
+        } else if (isDone && !yieldLog) {
+          badge = isDone ? '' : '';  // no yield badge
+        } else if (!isDone && isToday) {
+          badge = `<span id="yb-${t.id}" style="font-size:.72rem;color:var(--muted)">${isOpen ? '▲' : '▼ yield'}</span>`;
+        }
+
+        // Inline yield panel — for today's incomplete tasks (pre-fill from prior yield log if any)
+        const panel = (!isDone && isToday) ? (() => {
+          const units = ['g','kg','lb','oz'];
+          const iVal  = yieldLog ? yieldLog.inputQty  : '';
+          const oVal  = yieldLog ? yieldLog.outputQty : '';
+          const iU    = yieldLog ? yieldLog.inputUnit  : 'kg';
+          const oU    = yieldLog ? yieldLog.outputUnit : 'kg';
+          const iOpts = units.map(u => `<option${u===iU?' selected':''}>${u}</option>`).join('');
+          const oOpts = units.map(u => `<option${u===oU?' selected':''}>${u}</option>`).join('');
+          let prevHtml = '<span style="color:var(--muted);font-size:.82rem">Enter weights above to see yield</span>';
+          if (yieldLog) {
+            const iG0 = toGrams(yieldLog.inputQty, yieldLog.inputUnit);
+            const oG0 = toGrams(yieldLog.outputQty, yieldLog.outputUnit);
+            const yp0 = iG0 > 0 ? (oG0 / iG0 * 100) : 0;
+            const w0  = iG0 - oG0;
+            const c0  = yp0 >= 80 ? 'var(--accent2)' : yp0 >= 60 ? 'var(--warn)' : 'var(--danger)';
+            prevHtml  = `<span>Yield: <strong style="color:${c0};font-size:1.15rem">${yp0.toFixed(1)}%</strong></span>
+              <span style="color:var(--muted)">Waste: ${w0 >= 1000 ? (w0/1000).toFixed(2)+' kg' : w0.toFixed(0)+' g'}</span>`;
+          }
+          return `
+          <div class="yield-panel" id="yp-${t.id}" style="display:${isOpen ? 'block' : 'none'}">
+            <div class="yp-weights">
+              <div class="yp-col">
+                <div class="yp-col-label">Input weight (before prep)</div>
+                <div class="yp-input-row">
+                  <input type="number" id="yin-${t.id}" value="${iVal}" placeholder="0.000" min="0" step="0.001" inputmode="decimal" oninput="calcYield('${t.id}')">
+                  <select id="yinu-${t.id}" onchange="calcYield('${t.id}')">${iOpts}</select>
+                </div>
+              </div>
+              <div class="yp-col">
+                <div class="yp-col-label">Output weight (after prep)</div>
+                <div class="yp-input-row">
+                  <input type="number" id="yout-${t.id}" value="${oVal}" placeholder="0.000" min="0" step="0.001" inputmode="decimal" oninput="calcYield('${t.id}')">
+                  <select id="youtu-${t.id}" onchange="calcYield('${t.id}')">${oOpts}</select>
+                </div>
+              </div>
+            </div>
+            <div class="yp-preview" id="yprev-${t.id}">${prevHtml}</div>
+            <div class="yp-actions">
+              <button class="btn btn-ghost btn-sm" onclick="markDone('${t.id}')">Done (no yield)</button>
+              <button class="btn btn-success" style="padding:11px 22px;font-size:1rem" onclick="saveAndDone('${t.id}')">Save &amp; Done</button>
+            </div>
+          </div>`;
+        })() : '';
+
+        // Edit panel — for today's done tasks that have a yield log
+        const editPanel = (isDone && yieldLog && isToday) ? (() => {
+          const units = ['g','kg','lb','oz'];
+          const iOpts = units.map(u => `<option${u===yieldLog.inputUnit?' selected':''}>${u}</option>`).join('');
+          const oOpts = units.map(u => `<option${u===yieldLog.outputUnit?' selected':''}>${u}</option>`).join('');
+          const iG0   = toGrams(yieldLog.inputQty, yieldLog.inputUnit);
+          const oG0   = toGrams(yieldLog.outputQty, yieldLog.outputUnit);
+          const yp0   = iG0 > 0 ? (oG0 / iG0 * 100) : 0;
+          const w0    = iG0 - oG0;
+          const col0  = yp0 >= 80 ? 'var(--accent2)' : yp0 >= 60 ? 'var(--warn)' : 'var(--danger)';
+          return `
+          <div class="yield-panel" id="yep-${t.id}" style="display:${isEditOpen?'block':'none'};border-bottom-color:var(--warn)">
+            <div style="font-size:.75rem;color:var(--warn);font-weight:600;margin-bottom:10px">CORRECT YIELD — tap fields to update</div>
+            <div class="yp-weights">
+              <div class="yp-col">
+                <div class="yp-col-label">Input weight (before prep)</div>
+                <div class="yp-input-row">
+                  <input type="number" id="eyin-${t.id}" value="${yieldLog.inputQty}" min="0" step="0.001" inputmode="decimal" oninput="calcEditYield('${t.id}')">
+                  <select id="eyinu-${t.id}" onchange="calcEditYield('${t.id}')">${iOpts}</select>
+                </div>
+              </div>
+              <div class="yp-col">
+                <div class="yp-col-label">Output weight (after prep)</div>
+                <div class="yp-input-row">
+                  <input type="number" id="eyout-${t.id}" value="${yieldLog.outputQty}" min="0" step="0.001" inputmode="decimal" oninput="calcEditYield('${t.id}')">
+                  <select id="eyoutu-${t.id}" onchange="calcEditYield('${t.id}')">${oOpts}</select>
+                </div>
+              </div>
+            </div>
+            <div class="yp-preview" id="yeprev-${t.id}">
+              <span>Yield: <strong style="color:${col0};font-size:1.15rem">${yp0.toFixed(1)}%</strong></span>
+              <span style="color:var(--muted)">Waste: ${w0 >= 1000 ? (w0/1000).toFixed(2)+' kg' : w0.toFixed(0)+' g'}</span>
+            </div>
+            <div class="yp-actions">
+              <button class="btn btn-ghost btn-sm" onclick="toggleEditPanel('${t.id}')">Cancel</button>
+              <button class="btn btn-danger btn-sm" onclick="clearYield('${t.id}')">Clear yield</button>
+              <button class="btn btn-warn" style="padding:11px 22px;font-size:1rem;color:#111" onclick="updateYield('${t.id}')">Update Yield</button>
+            </div>
+          </div>`;
+        })() : '';
+
+        const isTappable = isToday && (!isDone || (isDone && !!yieldLog));
+        const onClickFn  = isDone && yieldLog ? `toggleEditPanel('${t.id}')` : (!isDone ? `togglePanel('${t.id}')` : '');
+
+        return `
+          <div style="border-bottom:1px solid var(--border)">
+            <div class="task-row${isDone ? ' done' : ''}${isTappable ? ' tappable' : ''}"
+              onclick="${onClickFn}">
+              <input type="checkbox" ${isDone ? 'checked' : ''} ${isToday ? '' : 'disabled'}
+                onclick="event.stopPropagation()"
+                onchange="onCheckbox('${t.id}', this.checked)">
+              <div style="flex:1;min-width:0">
+                <span class="task-name${isDone ? ' done' : ''}">${t.name}</span>
+                ${t.instruction ? `<div style="font-size:.75rem;color:var(--muted);margin-top:2px;font-style:italic">${t.instruction}</div>` : ''}
+              </div>
+              ${t.targetQty ? `<span class="task-target">${t.targetQty}</span>` : ''}
+              ${badge}
+            </div>
+            ${panel}${editPanel}
+          </div>`;
+      }).join('')}`;
+  }).join('') || '<div class="empty">No prep tasks synced yet.<br>Main app → ⚙ Settings → Sync Prep Tasks</div>';
+}
+
+// Toggle yield panel without full re-render (preserves input values)
+function togglePanel(taskId) {
+  if (expandedPanels.has(taskId)) {
+    expandedPanels.delete(taskId);
+  } else {
+    expandedPanels.add(taskId);
+  }
+  const isOpen = expandedPanels.has(taskId);
+  const panel  = document.getElementById('yp-' + taskId);
+  const badge  = document.getElementById('yb-' + taskId);
+  if (panel) panel.style.display = isOpen ? 'block' : 'none';
+  if (badge) badge.textContent = isOpen ? '▲' : '▼ yield';
+}
+
+// Live yield calculation inside the panel
+function calcYield(taskId) {
+  const iQty  = parseFloat(document.getElementById('yin-'   + taskId)?.value) || 0;
+  const iUnit = document.getElementById('yinu-'  + taskId)?.value || 'kg';
+  const oQty  = parseFloat(document.getElementById('yout-'  + taskId)?.value) || 0;
+  const oUnit = document.getElementById('youtu-' + taskId)?.value || 'kg';
+  const el    = document.getElementById('yprev-' + taskId);
+  if (!el) return;
+
+  if (!iQty || !oQty) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:.82rem">Enter weights above to see yield</span>';
+    return;
+  }
+
+  const iG     = toGrams(iQty, iUnit);
+  const oG     = toGrams(oQty, oUnit);
+  const yPct   = iG > 0 ? (oG / iG * 100) : 0;
+  const wasteG = iG - oG;
+  const col    = yPct >= 80 ? 'var(--accent2)' : yPct >= 60 ? 'var(--warn)' : 'var(--danger)';
+
+  el.innerHTML = `
+    <span>Yield: <strong style="color:${col};font-size:1.15rem">${yPct.toFixed(1)}%</strong></span>
+    <span style="color:var(--muted)">Waste: ${wasteG >= 1000 ? (wasteG/1000).toFixed(2)+' kg' : wasteG.toFixed(0)+' g'}</span>`;
+}
+
+// Checkbox tap — quick done/undone without yield
+async function onCheckbox(taskId, isChecked) {
+  if (prepDate !== todayStr()) return;
+  const checks = { ...(prepChecksCache[prepDate]||{}) };
+  checks[taskId] = { ...(checks[taskId]||{}), done: isChecked };
+  prepChecksCache[prepDate] = checks;
+  if (isChecked) expandedPanels.delete(taskId);
+  renderPrep();
+  try { await fbPut('/rcc/prepDaily/' + prepDate, { checks }); }
+  catch(e) { toast('Save failed: ' + e.message, 'error'); setStatus(false); }
+}
+
+// Mark done without yield
+async function markDone(taskId) {
+  await onCheckbox(taskId, true);
+}
+
+// Save yield log + mark done
+async function saveAndDone(taskId) {
+  const task  = prepTasks.find(t => t.id === taskId);
+  const iQty  = parseFloat(document.getElementById('yin-'   + taskId)?.value);
+  const iUnit = document.getElementById('yinu-'  + taskId)?.value || 'kg';
+  const oQty  = parseFloat(document.getElementById('yout-'  + taskId)?.value);
+  const oUnit = document.getElementById('youtu-' + taskId)?.value || 'kg';
+
+  if (!iQty || iQty <= 0) { toast('Enter input weight.', 'error'); return; }
+  if (!oQty || oQty <= 0) { toast('Enter output weight.', 'error'); return; }
+
+  const iG = toGrams(iQty, iUnit);
+  const oG = toGrams(oQty, oUnit);
+  if (oG > iG + 0.001) { toast('Output cannot be heavier than input.', 'error'); return; }
+
+  const taskName = task?.name || '';
+  // Try to find matching ingredient by name
+  const ing = ingredients.find(i => i.name.toLowerCase() === taskName.toLowerCase());
+  const yPct = (oG / iG * 100).toFixed(1);
+
+  const payload = {
+    id: uid(), date: todayStr(), taskId,
+    ingredientId:   ing?.id   || null,
+    ingredientName: ing?.name || taskName,
+    inputQty: iQty, inputUnit: iUnit,
+    outputQty: oQty, outputUnit: oUnit,
+    note: ''
+  };
+
+  try {
+    await fbPost('/rcc/pendingYieldLogs', payload);
+    // Optimistically add to local cache (don't re-fetch — Firebase propagation lag
+    // would cause the new entry to be missing and the badge/edit panel to not appear)
+    allYieldLogs = allYieldLogs || [];
+    allYieldLogs.push(payload);
+    await markDone(taskId);
+    toast(`${taskName}: ${yPct}% yield saved.`);
+  } catch(e) {
+    toast('Submit failed: ' + e.message, 'error');
+  }
+}
+
+// Clear a wrongly-logged yield (posts a cleared marker — latest entry wins)
+async function clearYield(taskId) {
+  if (!confirm('Clear this yield entry? The task stays done but the yield data will be removed.')) return;
+  const task = prepTasks.find(t => t.id === taskId);
+  const payload = { id: uid(), date: todayStr(), taskId, cleared: true };
+  try {
+    await fbPost('/rcc/pendingYieldLogs', payload);
+    allYieldLogs = allYieldLogs || [];
+    allYieldLogs.push(payload);
+    expandedEditPanels.delete(taskId);
+    renderPrep();
+    toast(`Yield cleared for "${task?.name || taskId}". Task stays done.`);
+  } catch(e) {
+    toast('Clear failed: ' + e.message, 'error');
+  }
+}
+
+// Toggle edit panel (done tasks with yield)
+function toggleEditPanel(taskId) {
+  if (expandedEditPanels.has(taskId)) {
+    expandedEditPanels.delete(taskId);
+  } else {
+    expandedEditPanels.add(taskId);
+  }
+  const isOpen = expandedEditPanels.has(taskId);
+  const panel  = document.getElementById('yep-' + taskId);
+  const badge  = document.getElementById('yb-' + taskId);
+  if (panel) panel.style.display = isOpen ? 'block' : 'none';
+  if (badge) {
+    // Update the ✏/▲ icon at the end of the badge text
+    badge.textContent = badge.textContent.replace(/[✏▲]$/, isOpen ? '▲' : '✏');
+  }
+}
+
+// Live yield calc for the edit panel
+function calcEditYield(taskId) {
+  const iQty  = parseFloat(document.getElementById('eyin-'   + taskId)?.value) || 0;
+  const iUnit = document.getElementById('eyinu-'  + taskId)?.value || 'kg';
+  const oQty  = parseFloat(document.getElementById('eyout-'  + taskId)?.value) || 0;
+  const oUnit = document.getElementById('eyoutu-' + taskId)?.value || 'kg';
+  const el    = document.getElementById('yeprev-' + taskId);
+  if (!el) return;
+
+  if (!iQty || !oQty) {
+    el.innerHTML = '<span style="color:var(--muted);font-size:.82rem">Enter weights above to see yield</span>';
+    return;
+  }
+
+  const iG     = toGrams(iQty, iUnit);
+  const oG     = toGrams(oQty, oUnit);
+  const yPct   = iG > 0 ? (oG / iG * 100) : 0;
+  const wasteG = iG - oG;
+  const col    = yPct >= 80 ? 'var(--accent2)' : yPct >= 60 ? 'var(--warn)' : 'var(--danger)';
+
+  el.innerHTML = `
+    <span>Yield: <strong style="color:${col};font-size:1.15rem">${yPct.toFixed(1)}%</strong></span>
+    <span style="color:var(--muted)">Waste: ${wasteG >= 1000 ? (wasteG/1000).toFixed(2)+' kg' : wasteG.toFixed(0)+' g'}</span>`;
+}
+
+// Submit corrected yield entry (latest entry wins pattern)
+async function updateYield(taskId) {
+  const task  = prepTasks.find(t => t.id === taskId);
+  const iQty  = parseFloat(document.getElementById('eyin-'   + taskId)?.value);
+  const iUnit = document.getElementById('eyinu-'  + taskId)?.value || 'kg';
+  const oQty  = parseFloat(document.getElementById('eyout-'  + taskId)?.value);
+  const oUnit = document.getElementById('eyoutu-' + taskId)?.value || 'kg';
+
+  if (!iQty || iQty <= 0) { toast('Enter input weight.', 'error'); return; }
+  if (!oQty || oQty <= 0) { toast('Enter output weight.', 'error'); return; }
+
+  const iG = toGrams(iQty, iUnit);
+  const oG = toGrams(oQty, oUnit);
+  if (oG > iG + 0.001) { toast('Output cannot be heavier than input.', 'error'); return; }
+
+  const taskName = task?.name || '';
+  const ing      = ingredients.find(i => i.name.toLowerCase() === taskName.toLowerCase());
+  const yPct     = (oG / iG * 100).toFixed(1);
+
+  const payload = {
+    id: uid(), date: todayStr(), taskId,
+    ingredientId:   ing?.id   || null,
+    ingredientName: ing?.name || taskName,
+    inputQty: iQty, inputUnit: iUnit,
+    outputQty: oQty, outputUnit: oUnit,
+    note: 'corrected'
+  };
+
+  try {
+    await fbPost('/rcc/pendingYieldLogs', payload);
+    allYieldLogs = allYieldLogs || [];
+    allYieldLogs.push(payload);
+    expandedEditPanels.delete(taskId);
+    renderPrep();
+    toast(`${taskName}: yield corrected to ${yPct}%.`);
+  } catch(e) {
+    toast('Update failed: ' + e.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PRODUCTION TAB
+// ══════════════════════════════════════════════════════════════════════════
+function prodChangeDate(delta) {
+  const d = new Date(prodDate + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  const next = localDateStr(d);
+  if (next > todayStr()) return;
+  prodDate = next;
+  setDateLabel('prod-date-label','prod-btn-prev','prod-btn-next', prodDate);
+  document.getElementById('log-prod-btn').style.display = prodDate === todayStr() ? '' : 'none';
+  renderProduction();
+}
+
+function populateLogForm() {
+  const sel = document.getElementById('lp-recipe');
+  sel.innerHTML = '<option value="">— Select recipe —</option>' +
+    batchRecipes.map(r => `<option value="${r.id}">${r.name} (yield: ${r.batchYield||1})</option>`).join('');
+}
+
+function toggleLogForm() {
+  const form = document.getElementById('log-prod-form');
+  const showing = form.style.display !== 'none';
+  form.style.display = showing ? 'none' : '';
+  editingProdId = null;
+  document.getElementById('lp-recipe').value  = '';
+  document.getElementById('lp-batches').value = '1';
+  document.getElementById('lp-note').value    = '';
+  document.getElementById('lp-submit-btn').textContent = 'Submit';
+  document.getElementById('lp-cancel-btn').textContent  = 'Cancel';
+}
+
+async function loadAllProductions() {
+  if (allProductions !== null) return;
+  try {
+    const data = await fbGet('/rcc/pendingProductions');
+    // Preserve Firebase push-key (_fbKey) so we can edit/delete individual entries
+    allProductions = data ? Object.entries(data).map(([k, v]) => v ? {...v, _fbKey: k} : null).filter(Boolean) : [];
+  } catch(e) { allProductions = []; }
+}
+
+async function submitProduction() {
+  const recipeId = document.getElementById('lp-recipe').value;
+  const batches  = parseInt(document.getElementById('lp-batches').value) || 0;
+  const note     = document.getElementById('lp-note').value.trim();
+  if (!recipeId) { toast('Select a recipe.', 'error'); return; }
+  if (batches < 1) { toast('Enter at least 1 batch.', 'error'); return; }
+  const recipe = batchRecipes.find(r => r.id === recipeId);
+
+  if (editingProdId) {
+    // Edit existing batch
+    const existing = (allProductions||[]).find(x => x.id === editingProdId);
+    if (!existing) return;
+    const updated = { ...existing, recipeId, batchesLogged: batches, note };
+    const fbKey   = existing._fbKey || editingProdId;
+    try {
+      await fbPut('/rcc/pendingProductions/' + fbKey, updated);
+      const idx = allProductions.findIndex(x => x.id === editingProdId);
+      if (idx >= 0) allProductions[idx] = {...updated, _fbKey: fbKey};
+      toggleLogForm();
+      renderProduction();
+      toast(`Batch updated: ${recipe?.name||'recipe'}.`);
+    } catch(e) { toast('Update failed: ' + e.message, 'error'); }
+  } else {
+    // New batch — use PUT with own id as key so we can edit/delete later
+    const id      = uid();
+    const payload = { id, date: todayStr(), recipeId, batchesLogged: batches, note };
+    try {
+      await fbPut('/rcc/pendingProductions/' + id, payload);
+      allProductions = allProductions || [];
+      allProductions.push({...payload, _fbKey: id});
+      toggleLogForm();
+      renderProduction();
+      toast(`${batches} batch${batches!==1?'es':''} of ${recipe?.name||'recipe'} submitted.`);
+    } catch(e) { toast('Submit failed: ' + e.message, 'error'); }
+  }
+}
+
+let editingProdId = null;
+
+function startEditProduction(batchId) {
+  editingProdId = batchId;
+  const b      = (allProductions||[]).find(x => x.id === batchId);
+  const recipe = batchRecipes.find(r => r.id === b?.recipeId);
+  if (!b) return;
+  document.getElementById('lp-recipe').value  = b.recipeId;
+  document.getElementById('lp-batches').value = b.batchesLogged ?? 1;
+  document.getElementById('lp-note').value    = b.note || '';
+  document.getElementById('log-prod-form').style.display = '';
+  document.getElementById('lp-submit-btn').textContent = 'Update';
+  document.getElementById('lp-cancel-btn').textContent  = 'Cancel Edit';
+  toast(`Editing batch: ${recipe?.name || batchId}`);
+}
+
+async function deleteProduction(batchId) {
+  const b      = (allProductions||[]).find(x => x.id === batchId);
+  const recipe = batchRecipes.find(r => r.id === b?.recipeId);
+  if (!confirm(`Delete batch of "${recipe?.name || 'this recipe'}"?`)) return;
+  const fbKey = b?._fbKey || batchId;
+  try {
+    await fetch(FB_URL + '/rcc/pendingProductions/' + fbKey + '.json', { method: 'DELETE' });
+    allProductions = (allProductions||[]).filter(x => x.id !== batchId);
+    renderProduction();
+    toast('Batch deleted.');
+  } catch(e) { toast('Delete failed: ' + e.message, 'error'); }
+}
+
+function renderProduction() {
+  const isToday = prodDate === todayStr();
+  const batches = (allProductions||[]).filter(b => b.date === prodDate);
+  document.getElementById('prod-count').textContent = batches.length ? `${batches.length} logged` : '';
+  document.getElementById('prod-content').innerHTML = !batches.length
+    ? '<div class="empty">No production batches for this date.</div>'
+    : batches.map(b => {
+        const recipe   = batchRecipes.find(r => r.id === b.recipeId);
+        const n        = b.batchesLogged ?? 1;
+        const total    = recipe ? n * (recipe.batchYield||1) : '?';
+        const unit     = recipe?.outputUnit || 'portions';
+        const ings     = recipe?.ingredients || [];
+        return `
+          <div class="prod-card">
+            <div class="prod-recipe">${recipe?.name||'Unknown recipe'}</div>
+            ${ings.length ? `
+              <div style="margin-top:6px;font-size:.78rem;color:var(--muted)">
+                <span style="text-transform:uppercase;letter-spacing:.04em;font-size:.7rem">Ingredients (1 batch)</span><br>
+                ${ings.map(i => `<span style="margin-right:10px">• ${i}</span>`).join('')}
+              </div>` : ''}
+            <div class="prod-meta" style="margin-top:8px">
+              ${n} batch${n!==1?'es':''} &nbsp;→&nbsp;
+              <strong style="color:var(--accent2)">${total} ${unit}</strong>
+            </div>
+            ${b.note ? `<div class="prod-note">📝 ${b.note}</div>` : ''}
+            ${isToday ? `
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn btn-ghost btn-sm" onclick="startEditProduction('${b.id}')">✏ Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteProduction('${b.id}')">✕ Delete</button>
+            </div>` : ''}
+          </div>`;
+      }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// STOCK TAKE TAB
+// ══════════════════════════════════════════════════════════════════════════
+function renderStock() {
+  const grouped = {};
+  ingredients.forEach(i => {
+    const cat = i.category || 'Other';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(i);
+  });
+  const cats = Object.keys(grouped).sort();
+  document.getElementById('stock-content').innerHTML = cats.map(cat => {
+    const items = grouped[cat].sort((a,b) => a.name.localeCompare(b.name));
+    return `<div class="stock-cat-head">${cat}</div>` +
+      items.map(i => `
+        <div class="stock-row">
+          <span class="stock-name">${i.name}</span>
+          <span class="stock-unit-label">${i.recipeUnit||''}</span>
+          <input type="number" class="stock-input${countLines[i.id]?' filled':''}"
+            id="sc-${i.id}" value="${countLines[i.id]||''}"
+            placeholder="0" min="0" step="0.01" inputmode="decimal"
+            oninput="updateCountLine('${i.id}',this.value)">
+        </div>`).join('');
+  }).join('') || '<div class="empty">No ingredients synced yet.</div>';
+  updateStockBtn();
+}
+
+function updateCountLine(ingId, val) {
+  const el = document.getElementById('sc-' + ingId);
+  if (val !== '' && parseFloat(val) >= 0) { countLines[ingId] = val; el.classList.add('filled'); }
+  else { delete countLines[ingId]; el.classList.remove('filled'); }
+  updateStockBtn();
+}
+
+function updateStockBtn() {
+  const n = Object.keys(countLines).length;
+  document.getElementById('stock-submit-info').textContent = n ? `${n} item${n!==1?'s':''} counted` : '0 items counted';
+  document.getElementById('stock-submit-btn').disabled = n === 0;
+}
+
+function clearStockCount() {
+  if (Object.keys(countLines).length && !confirm('Clear all entered counts?')) return;
+  countLines = {};
+  renderStock();
+}
+
+async function submitStockCount() {
+  const n = Object.keys(countLines).length;
+  if (!n) return;
+  const date  = todayStr();
+  const lines = Object.entries(countLines).map(([ingId, qty]) => {
+    const ing = ingredients.find(i => i.id === ingId) || {};
+    return { ingredientId: ingId, name: ing.name||ingId, closeQty: parseFloat(qty)||0, closeUnit: ing.recipeUnit||'each', openQty: 0, openUnit: ing.recipeUnit||'each' };
+  });
+  const payload = { id: uid(), date, dateFrom: date, dateTo: date, note: 'Tablet stock count — ' + fmtDate(date), lines };
+  try {
+    await fbPost('/rcc/pendingCounts', payload);
+    allCounts = null;
+    countLines = {};
+    renderStock();
+    toast(`Stock count submitted (${n} items).`);
+    loadStockHistory();
+  } catch(e) { toast('Submit failed: ' + e.message, 'error'); }
+}
+
+async function loadStockHistory() {
+  if (allCounts === null) {
+    try { const d = await fbGet('/rcc/pendingCounts'); allCounts = d ? Object.values(d) : []; }
+    catch(e) { allCounts = []; }
+  }
+  const sorted = [...allCounts].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  document.getElementById('stock-history').innerHTML = !sorted.length
+    ? '<div class="empty">No stock counts submitted yet.</div>'
+    : sorted.slice(0,10).map(c => {
+        const n       = c.lines?.length || 0;
+        const preview = (c.lines||[]).slice(0,4).map(l => `${l.name}: ${l.closeQty} ${l.closeUnit}`).join(', ');
+        return `
+          <div class="history-card">
+            <div class="hc-date">${fmtDate(c.date)} &nbsp;·&nbsp; ${n} items</div>
+            <div class="hc-lines">${preview}${n>4?` +${n-4} more…`:''}</div>
+          </div>`;
+      }).join('') + '<div style="height:20px"></div>';
+}
+
+// ── BOOT ──────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

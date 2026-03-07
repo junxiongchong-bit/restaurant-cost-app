@@ -19,7 +19,10 @@ let db = {
   importLog:     [],
   modifierLinks:      [],  // [{ pattern, type, ingredientId, qty, unit, extraCost }]
   stockCounts:        [],  // [{ id, dateFrom, dateTo, note, lines: [{ingredientId, openQty, openUnit, closeQty, closeUnit}] }]
-  productionBatches:  []   // [{ id, date, recipeId, portionsProduced, note }]
+  productionBatches:  [],  // [{ id, date, recipeId, portionsProduced, note }]
+  prepTasks:          [],  // [{ id, category, name, targetQty, order }]
+  prepDailyHistory:   {},  // { 'YYYY-MM-DD': { checks: { [taskId]: { done, actualQty } } } }
+  yieldLogs:          []   // [{ id, date, ingredientId, inputQty, inputUnit, outputQty, outputUnit, note }]
 };
 
 // ── STORAGE ────────────────────────────────────────────────────────────────
@@ -34,6 +37,16 @@ async function loadDB() {
       // Migration: ensure new collections exist for older saved data
       if (!db.stockCounts)        db.stockCounts        = [];
       if (!db.productionBatches)  db.productionBatches  = [];
+      if (!db.prepTasks)  db.prepTasks = [];
+      if (!db.prepDailyHistory) {
+        db.prepDailyHistory = {};
+        // Migrate from old single-day prepDaily
+        if (db.prepDaily?.date) {
+          db.prepDailyHistory[db.prepDaily.date] = { checks: db.prepDaily.checks || {} };
+        }
+        delete db.prepDaily;
+      }
+      if (!db.yieldLogs) db.yieldLogs = [];
       if (!db.modifierLinks) {
         // Migrate old modifierCosts if present, otherwise start fresh
         if (db.modifierCosts && db.modifierCosts.length) {

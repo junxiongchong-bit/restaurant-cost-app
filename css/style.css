@@ -58,6 +58,7 @@ tr:hover td{background:rgba(108,99,255,.04)}
 .divider{border:none;border-top:1px solid var(--border);margin:12px 0}
 .wac-badge{background:rgba(78,204,163,.12);border:1px solid rgba(78,204,163,.3);color:var(--accent2);padding:2px 8px;border-radius:4px;font-size:.73rem;font-weight:700}
 .search-wrap{position:relative;margin-bottom:14px}
+.tab-btn{background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);padding:8px 16px;cursor:pointer;font-size:.83rem;font-weight:600;transition:.2s}.tab-btn.active{color:var(--accent2);border-bottom-color:var(--accent2)}.tab-btn:hover:not(.active){color:var(--text)}
 .search-wrap input{padding-left:30px}
 .search-wrap::before{content:'🔍';position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:.75rem}
 .rpt-tabs{display:flex;gap:6px;margin-bottom:16px}

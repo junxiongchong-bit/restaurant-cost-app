@@ -27,6 +27,7 @@
   <button onclick="goPage('import',this)">📁 Import</button>
   <button onclick="goPage('inventory',this)">📦 Inventory</button>
   <button onclick="goPage('production',this)">🏭 Production</button>
+  <button onclick="goPage('prep',this)">✅ Prep</button>
 </nav>
 
 <main>
@@ -58,7 +59,16 @@
   <!-- INGREDIENTS -->
   <div id="page-ingredients" class="page">
     <div class="fb"><h2>Ingredients <span class="wac-badge">WAC</span></h2><div class="flex"><button class="btn btn-ghost" onclick="exportIngredientsCSV()">⬇ Export CSV</button><button class="btn btn-primary" onclick="openIngModal()">+ Add Ingredient</button></div></div>
-    <div class="search-wrap"><input id="ing-search" placeholder="Search…" oninput="renderIngredients()"></div>
+    <div class="search-wrap" style="display:flex;gap:8px">
+      <input id="ing-search" placeholder="Search…" oninput="renderIngredients()" style="flex:1">
+      <select id="ing-impact-filter" onchange="renderIngredients()" style="width:160px">
+        <option value="">All Cost Impacts</option>
+        <option value="high">High Impact</option>
+        <option value="medium">Medium Impact</option>
+        <option value="low">Low Impact</option>
+        <option value="none">Not Set</option>
+      </select>
+    </div>
     <div class="card" style="padding:0;overflow:hidden">
       <table><thead><tr>
         <th id="th-ing-name"  onclick="sortTbl('ing','name',renderIngredients)"  style="cursor:pointer">Name</th>
@@ -275,6 +285,33 @@
       </div>
     </div>
 
+    <!-- Live Stock Section -->
+    <div style="margin-top:24px">
+      <div class="fb" style="margin-bottom:8px">
+        <div>
+          <div class="muted">LIVE STOCK LEVELS</div>
+          <div class="muted" style="font-size:.75rem;margin-top:2px">Last count + purchases − theoretical usage since count</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="renderLiveStock()">↻ Refresh</button>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead><tr>
+            <th>Ingredient</th>
+            <th>Last Counted</th>
+            <th>Closing Stock</th>
+            <th>+ Purchases</th>
+            <th>− Used (est.)</th>
+            <th>= On Hand (est.)</th>
+            <th>Value</th>
+          </tr></thead>
+          <tbody id="live-stock-table">
+            <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Click ↻ Refresh to calculate.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Variance Section (hidden by default) -->
     <div id="inv-variance-section" style="display:none">
       <div class="fb">
@@ -315,6 +352,41 @@
   </div>
 
 
+  <!-- KITCHEN PREP CHECKLIST -->
+  <div id="page-prep" class="page">
+    <div class="fb">
+      <h2>Kitchen Prep</h2>
+      <div class="flex" style="gap:8px">
+        <button class="btn btn-ghost btn-sm" id="prep-reset-btn" onclick="resetPrepDay()">↺ Reset for Today</button>
+        <button class="btn btn-primary" id="prep-add-btn" onclick="openPrepTaskModal()">+ Add Task</button>
+        <button class="btn btn-primary" id="yield-add-btn" style="display:none" onclick="openYieldModal()">+ Log Yield</button>
+        <button class="btn btn-ghost" id="yield-fetch-btn" style="display:none" onclick="fetchYieldLogsFromFirebase()">⬇ Fetch Firebase</button>
+      </div>
+    </div>
+    <!-- Inner tabs -->
+    <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px">
+      <button class="tab-btn active" data-tab="checklist" onclick="switchPrepTab('checklist',this)">Checklist</button>
+      <button class="tab-btn" data-tab="yield" onclick="switchPrepTab('yield',this)">Yield Log</button>
+    </div>
+    <!-- Checklist tab -->
+    <div id="prep-tab-checklist">
+      <div id="prep-progress-bar" style="margin-bottom:16px"></div>
+      <div id="prep-categories"></div>
+    </div>
+    <!-- Yield Log tab -->
+    <div id="prep-tab-yield" style="display:none">
+      <div id="yield-summary"></div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Ingredient</th><th>Input</th><th>Output</th><th>Yield %</th><th>Note</th><th></th>
+          </tr></thead>
+          <tbody id="yield-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- PRODUCTION -->
   <div id="page-production" class="page">
     <div class="fb">
@@ -332,7 +404,7 @@
         <thead><tr>
           <th>Date</th>
           <th>Recipe</th>
-          <th>Portions Made</th>
+          <th>Batches / Portions</th>
           <th>Batch Cost</th>
           <th>Note</th>
           <th></th>
@@ -374,6 +446,17 @@
       <div><label>Name *</label><input id="ing-name" placeholder="e.g. Ham"></div>
       <div><label>Category</label><input id="ing-cat" placeholder="e.g. Meat"></div>
       <div><label>Default Supplier</label><select id="ing-sup"></select></div>
+    </div>
+    <div class="form-row c3">
+      <div>
+        <label>Cost Impact</label>
+        <select id="ing-impact">
+          <option value="">— Not set —</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
     </div>
     <div class="form-row c3">
       <div><label>Recipe Base Unit</label>
@@ -423,6 +506,17 @@
       <div><label>Name *</label><input id="detail-name" placeholder="Ingredient name"></div>
       <div><label>Category</label><input id="detail-cat" placeholder="e.g. Meat"></div>
       <div><label>Supplier</label><select id="detail-sup"></select></div>
+    </div>
+    <div class="form-row c3">
+      <div>
+        <label>Cost Impact</label>
+        <select id="detail-impact">
+          <option value="">— Not set —</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
     </div>
     <div class="form-row c3">
       <div>
@@ -492,8 +586,16 @@
     </div>
     <div style="margin-top:10px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:400">
-        <input type="checkbox" id="recipe-batch" style="width:auto;margin:0;cursor:pointer">
+        <input type="checkbox" id="recipe-batch" style="width:auto;margin:0;cursor:pointer" onchange="toggleBatchYield()">
         <span>Batch production recipe <span class="muted" style="font-weight:400">(portions produced in bulk — log batches in Production tab to track raw ingredient usage &amp; finished-goods WAC)</span></span>
+      </label>
+    </div>
+    <div id="recipe-batch-yield-wrap" style="display:none;margin-top:8px">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:.88rem">
+        Portions per batch *
+        <input type="number" id="recipe-batch-yield" min="1" step="1" style="width:90px" placeholder="e.g. 40" oninput="updateRCP()">
+        <input type="text" id="recipe-output-unit" style="width:100px" placeholder="e.g. balls" title="Output unit label shown on kitchen tablet">
+        <span class="muted" style="font-size:.78rem">— how many and what unit per batch?</span>
       </label>
     </div>
     <div style="margin-top:8px">
@@ -637,7 +739,7 @@
     <h3 id="prod-modal-title">Log Production Batch</h3>
     <div class="form-row c2">
       <div><label>Date *</label><input id="prod-date" type="date"></div>
-      <div><label>Portions Produced *</label><input id="prod-qty" type="number" min="1" step="1" placeholder="e.g. 14" oninput="updateProductionPreview()"></div>
+      <div><label>Batches Made *</label><input id="prod-qty" type="number" min="1" step="1" placeholder="e.g. 2" oninput="updateProductionPreview()"></div>
     </div>
     <div>
       <label>Batch Recipe * <span class="muted">(only batch-enabled recipes shown)</span></label>
@@ -700,9 +802,12 @@
       <label>Firebase Database URL <span class="muted">(for tablet stock takes)</span></label>
       <input id="settings-fb-url" placeholder="https://your-project-default-rtdb.firebaseio.com" autocomplete="off" style="margin-top:6px">
       <div class="muted" style="margin-top:4px">Stored locally. Used to sync ingredients to tablet and import stock counts.</div>
-      <div class="flex" style="gap:8px;margin-top:10px">
-        <button class="btn btn-ghost btn-sm" onclick="syncIngredientsToFirebase()">↑ Sync Ingredients to Tablet</button>
+      <div class="flex" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="syncIngredientsToFirebase()">↑ Sync Ingredients</button>
+        <button class="btn btn-ghost btn-sm" onclick="syncBatchRecipesToFirebase()">↑ Sync Batch Recipes</button>
+        <button class="btn btn-ghost btn-sm" onclick="syncPrepTasksToFirebase()">↑ Sync Prep Tasks</button>
         <button class="btn btn-ghost btn-sm" onclick="importStockCountsFromFirebase()">↓ Import Stock Counts</button>
+        <button class="btn btn-ghost btn-sm" onclick="importPendingProductionsFromFirebase()">↓ Import Productions</button>
       </div>
     </div>
 
@@ -736,6 +841,73 @@
   </div>
 </div>
 
+<!-- Prep Task Modal -->
+<div class="modal-overlay" id="modal-prep-task">
+  <div class="modal" style="max-width:460px">
+    <h3 id="prep-task-modal-title">Add Prep Task</h3>
+    <div class="form-row c2">
+      <div><label>Task Name *</label><input id="prep-task-name" placeholder="e.g. Mushroom"></div>
+      <div>
+        <label>Category</label>
+        <select id="prep-task-cat" onchange="onPrepCatChange()"></select>
+      </div>
+    </div>
+    <div>
+      <input id="prep-task-newcat" placeholder="New category name…" style="display:none;margin-bottom:10px">
+    </div>
+    <div class="form-row c2">
+      <div><label>Target Qty <span class="muted">(optional)</span></label>
+        <input id="prep-task-qty" placeholder="e.g. 2 kg"></div>
+      <div></div>
+    </div>
+    <div>
+      <label>Instruction <span class="muted">(optional)</span></label>
+      <textarea id="prep-task-instruction" placeholder="e.g. Slice 3mm thin, store in bain marie with water" rows="3" style="margin-top:6px;width:100%;resize:vertical"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-prep-task')">Cancel</button>
+      <button class="btn btn-primary" onclick="savePrepTask()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Yield Log Modal -->
+<div class="modal-overlay" id="modal-yield-log">
+  <div class="modal" style="max-width:520px">
+    <h3 id="yield-modal-title">Log Yield</h3>
+    <div class="form-row c2">
+      <div><label>Date *</label><input type="date" id="yield-date"></div>
+      <div><label>Ingredient *</label><select id="yield-ingredient"></select></div>
+    </div>
+    <div class="form-row c2">
+      <div>
+        <label>Input Weight (before prep) *</label>
+        <div style="display:flex;gap:6px">
+          <input type="number" id="yield-input-qty" placeholder="0.00" min="0" step="0.001" oninput="updateYieldPreview()" style="flex:1">
+          <select id="yield-input-unit" onchange="updateYieldPreview()" style="width:70px">
+            <option>g</option><option selected>kg</option><option>lb</option><option>oz</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Output Weight (after prep) *</label>
+        <div style="display:flex;gap:6px">
+          <input type="number" id="yield-output-qty" placeholder="0.00" min="0" step="0.001" oninput="updateYieldPreview()" style="flex:1">
+          <select id="yield-output-unit" onchange="updateYieldPreview()" style="width:70px">
+            <option>g</option><option selected>kg</option><option>lb</option><option>oz</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div id="yield-preview"></div>
+    <div style="margin-top:10px"><label>Note</label><input id="yield-note" placeholder="e.g. Wednesday morning prep, fresh delivery"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-yield-log')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveYieldLog()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- Scripts: db first, then modules, then app (which calls init) -->
 <script src="data/db.js"></script>
 <script src="js/ingredients.js"></script>
@@ -745,6 +917,7 @@
 <script src="js/inventory.js"></script>
 <script src="js/import.js"></script>
 <script src="js/production.js"></script>
+<script src="js/prep.js"></script>
 <script src="js/app.js"></script>
 
 </body>

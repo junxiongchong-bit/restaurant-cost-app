@@ -53,6 +53,7 @@ function openIngModal() {
   document.getElementById('ing-ru').value = 'g';
   document.getElementById('ing-buy-unit').value = 'each';
   document.getElementById('ing-pack-unit').value = 'g';
+  document.getElementById('ing-impact').value = '';
   document.getElementById('ing-wac-preview').style.display = 'none';
   populateSupSel('ing-sup');
   document.getElementById('ing-modal-title').textContent = 'Add Ingredient';
@@ -102,6 +103,7 @@ function saveIngredient() {
   }
   db.ingredients.push({ id: uid(), name, category: document.getElementById('ing-cat').value,
     supplierId: document.getElementById('ing-sup').value, recipeUnit: ru, yield: yld,
+    costImpact: document.getElementById('ing-impact').value || '',
     wac: cpu||0, totalBaseUnits: baseUnits, purchases: purs });
   saveDB(); closeModal('modal-ing'); renderIngredients(); toast('Ingredient added.');
 }
@@ -139,10 +141,11 @@ function openIngDetail(id) {
   detailIngId = id;
   const ing = db.ingredients.find(x => x.id === id);
   document.getElementById('ing-detail-title').textContent = ing.name + (ing.category ? ' — ' + ing.category : '') + ' — Detail';
-  document.getElementById('detail-name').value  = ing.name;
-  document.getElementById('detail-cat').value   = ing.category || '';
-  document.getElementById('detail-ru').value    = ing.recipeUnit || 'g';
-  document.getElementById('detail-yield').value = ing.yield || 100;
+  document.getElementById('detail-name').value   = ing.name;
+  document.getElementById('detail-cat').value    = ing.category || '';
+  document.getElementById('detail-ru').value     = ing.recipeUnit || 'g';
+  document.getElementById('detail-yield').value  = ing.yield || 100;
+  document.getElementById('detail-impact').value = ing.costImpact || '';
   document.getElementById('detail-yield-preview').style.display = 'none';
   populateSupSel('detail-sup', ing.supplierId || '');
   populateSupSel('pur-sup', ing.supplierId||'');
@@ -165,6 +168,7 @@ function saveIngredientInfo() {
   ing.supplierId = document.getElementById('detail-sup').value;
   ing.recipeUnit = document.getElementById('detail-ru').value;
   ing.yield      = parseFloat(document.getElementById('detail-yield').value) || 100;
+  ing.costImpact = document.getElementById('detail-impact').value || '';
   recalcWAC(ing);
   document.getElementById('ing-detail-title').textContent = ing.name + (ing.category ? ' — ' + ing.category : '') + ' — Detail';
   saveDB(); renderIngDetailTop(ing); renderIngredients();
@@ -296,9 +300,17 @@ function addPurchase() {
   toast('Purchase added & WAC updated.');
 }
 
+const IMPACT_BADGE = { high: '<span class="badge" style="background:var(--danger);color:#fff">High</span>', medium: '<span class="badge" style="background:var(--warn);color:#000">Medium</span>', low: '<span class="badge bb">Low</span>' };
+
 function renderIngredients() {
   const q = (document.getElementById('ing-search')?.value||'').toLowerCase();
-  let rows = db.ingredients.filter(i => i.name.toLowerCase().includes(q) || (i.category||'').toLowerCase().includes(q));
+  const impactFilter = document.getElementById('ing-impact-filter')?.value || '';
+  let rows = db.ingredients.filter(i => {
+    if(q && !i.name.toLowerCase().includes(q) && !(i.category||'').toLowerCase().includes(q)) return false;
+    if(impactFilter === 'none') return !i.costImpact;
+    if(impactFilter) return i.costImpact === impactFilter;
+    return true;
+  });
   rows = sortApply(rows, 'ing', (i, col) => ({
     name: i.name, cat: i.category||'', yield: i.yield||100, wac: i.wac||0, eff: effectiveCost(i)
   })[col] ?? i.name);
@@ -314,7 +326,7 @@ function renderIngredients() {
     const eff = effectiveCost(i);
     const sup = db.suppliers.find(s => s.id === i.supplierId);
     return `<tr>
-      <td><strong>${i.name}</strong>${sup ? `<div class="muted">${sup.name}</div>` : ''}</td>
+      <td><strong>${i.name}</strong>${sup ? `<div class="muted">${sup.name}</div>` : ''}${i.costImpact ? `<div style="margin-top:2px">${IMPACT_BADGE[i.costImpact]||''}</div>` : ''}</td>
       <td>${i.category ? `<span class="badge bb">${i.category}</span>` : '—'}</td>
       <td><span class="badge ${(i.yield||100)<100?'bw':'bg'}">${i.yield||100}%</span></td>
       <td style="color:var(--accent2)">$${(i.wac||0).toFixed(5)}</td>

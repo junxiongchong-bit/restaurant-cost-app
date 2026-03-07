@@ -95,7 +95,11 @@ function calcTheoreticalUsage(dateFrom, dateTo) {
   batchesInRange.forEach(pb => {
     const rec = db.recipes.find(r => r.id === pb.recipeId);
     if (!rec) return;
-    accumulateLines(rec.lines, pb.portionsProduced);
+    // batchesLogged = number of times the full recipe was made (multiplier)
+    // portionsProduced = batchesLogged × batchYield (total portions, new schema)
+    // For old records without batchesLogged, portionsProduced was the multiplier itself.
+    const multiplier = pb.batchesLogged !== undefined ? pb.batchesLogged : pb.portionsProduced;
+    accumulateLines(rec.lines, multiplier);
   });
 
   return usage;
@@ -334,10 +338,11 @@ function renderSCLines() {
     return;
   }
 
+  const impactLabel = { high: ' [High]', medium: ' [Med]', low: ' [Low]' };
   const ingOpts = '<option value="">— Select ingredient —</option>' +
     db.ingredients
       .filter(i => (i.category || '').toLowerCase() !== 'sundry')
-      .map(i => `<option value="${i.id}">${i.name} (${i.recipeUnit})</option>`).join('');
+      .map(i => `<option value="${i.id}">${i.name} (${i.recipeUnit})${impactLabel[i.costImpact] || ''}</option>`).join('');
 
   el.innerHTML = invLines.map((l, idx) => `
     <div style="display:grid;grid-template-columns:2fr 110px 90px auto;gap:6px;align-items:center;
@@ -421,4 +426,80 @@ function deleteStockCount(id) {
   db.stockCounts = db.stockCounts.filter(x => x.id !== id);
   saveDB();
   renderInventory();
+}
+
+// ── LIVE STOCK LEVELS ────────────────────────────────────────────────────────
+// Shows theoretical current stock for each tracked ingredient:
+//   closing stock from last count + purchases since + theoretical usage since
+function renderLiveStock() {
+  const today = todayStr();
+  const tb = document.getElementById('live-stock-table');
+
+  // Collect all ingredient IDs that appear in any stock count
+  const trackedIngIds = new Set();
+  (db.stockCounts || []).forEach(sc => sc.lines.forEach(l => { if (l.ingredientId) trackedIngIds.add(l.ingredientId); }));
+
+  if (!trackedIngIds.size) {
+    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No stock counts found. Create a stock count first.</td></tr>';
+    return;
+  }
+
+  // Build baseline for each tracked ingredient
+  const baselines = [];
+  trackedIngIds.forEach(ingId => {
+    const ing = db.ingredients.find(i => i.id === ingId);
+    if (!ing) return;
+
+    // Most recent stock count containing this ingredient
+    const lastSC = [...(db.stockCounts || [])]
+      .filter(sc => sc.lines.some(l => l.ingredientId === ingId))
+      .sort((a, b) => b.dateTo.localeCompare(a.dateTo))[0];
+    if (!lastSC) return;
+
+    const lastLine  = lastSC.lines.find(l => l.ingredientId === ingId);
+    const closingRU = convertToRecipeUnits(ing, lastLine.closeQty || 0, lastLine.closeUnit);
+
+    // Use count's dateTo as the start — sales from that date onwards are deducted
+    const dateFrom = lastSC.dateTo;
+
+    const purchasesSince = (ing.purchases || [])
+      .filter(p => !p.obsolete && p.date >= dateFrom && p.date <= today)
+      .reduce((s, p) => s + (p.baseUnits || 0), 0);
+
+    baselines.push({ ing, lastSC, closingRU: closingRU !== null ? closingRU : 0, purchasesSince, dateFrom });
+  });
+
+  // Group by dateFrom → one calcTheoreticalUsage call per unique since-date
+  const groups = {};
+  baselines.forEach(b => { (groups[b.dateFrom] = groups[b.dateFrom] || []).push(b); });
+  Object.entries(groups).forEach(([dateFrom, group]) => {
+    const usageMap = calcTheoreticalUsage(dateFrom, today);
+    group.forEach(b => {
+      b.usageSince   = usageMap.get(b.ing.id) || 0;
+      b.currentStock = b.closingRU + b.purchasesSince - b.usageSince;
+    });
+  });
+
+  const rows = baselines
+    .sort((a, b) => a.ing.name.localeCompare(b.ing.name))
+    .map(b => {
+      const ru    = b.ing.recipeUnit;
+      const value = b.currentStock * (b.ing.wac || 0);
+      const low   = b.currentStock < 0;
+      return `<tr>
+        <td><strong>${b.ing.name}</strong></td>
+        <td class="muted" style="font-size:.78rem">${b.lastSC.dateTo}</td>
+        <td>${fmt(b.closingRU)} ${ru}</td>
+        <td style="color:var(--accent2)">+${fmt(b.purchasesSince)} ${ru}</td>
+        <td style="color:var(--warn)">−${fmt(b.usageSince)} ${ru}</td>
+        <td style="${low ? 'color:var(--danger);font-weight:bold' : 'color:var(--accent2)'}">
+          ${fmt(b.currentStock)} ${ru}${low ? ' ⚠' : ''}
+        </td>
+        <td style="color:var(--muted)">$${fmt(value)}</td>
+      </tr>`;
+    });
+
+  tb.innerHTML = rows.length
+    ? rows.join('')
+    : '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">No data.</td></tr>';
 }

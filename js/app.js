@@ -19,7 +19,8 @@ function goPage(id, btn) {
     reports:     () => renderReports(),
     import:      renderImport,
     inventory:   renderInventory,
-    production:  renderProduction
+    production:  renderProduction,
+    prep:        renderPrep
   })[id]?.();
 }
 
@@ -258,8 +259,8 @@ function getFbUrl() { return (localStorage.getItem('rcc-fb-db-url') || '').repla
 async function syncIngredientsToFirebase() {
   const url = getFbUrl();
   if (!url) { toast('No Firebase URL set in Settings.', 'error'); return; }
-  // Push minimal ingredient data needed by the tablet stock take page
-  const payload = db.ingredients.map(i => {
+  // Push only High cost-impact ingredients to the tablet stock take page
+  const payload = db.ingredients.filter(i => i.costImpact === 'high').map(i => {
     const lastPur = [...(i.purchases || [])].filter(p => !p.obsolete).slice(-1)[0];
     return {
       id: i.id,
@@ -299,6 +300,93 @@ async function importStockCountsFromFirebase() {
     renderInventory();
     closeModal('modal-settings');
     toast(`${added} stock count${added !== 1 ? 's' : ''} imported from Firebase.`);
+  } catch (e) { toast('Import failed: ' + e.message, 'error'); }
+}
+
+async function syncPrepTasksToFirebase() {
+  const url = getFbUrl();
+  if (!url) { toast('No Firebase URL set in Settings.', 'error'); return; }
+  const tasks = (db.prepTasks || []).map(t => ({ id: t.id, category: t.category, name: t.name, targetQty: t.targetQty || '', instruction: t.instruction || '', order: t.order ?? 0 }));
+  try {
+    const res = await fetch(url + '/rcc/prepTasks.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tasks)
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    toast(`${tasks.length} prep tasks synced to Firebase.`);
+  } catch (e) { toast('Sync failed: ' + e.message, 'error'); }
+}
+
+async function syncBatchRecipesToFirebase() {
+  const url = getFbUrl();
+  if (!url) { toast('No Firebase URL set in Settings.', 'error'); return; }
+  const batchRecs = (db.recipes || []).filter(r => r.batchProduced);
+  if (!batchRecs.length) { toast('No batch recipes found. Mark a recipe as "Batch production" first.', 'error'); return; }
+  const payload = batchRecs.map(r => {
+    const ingredients = (r.lines || []).map(l => {
+      if (l.ref && l.ref.startsWith('ing:')) {
+        const ing = db.ingredients.find(i => i.id === l.ref.slice(4));
+        return ing ? `${l.qty} ${ing.recipeUnit || ''} ${ing.name}`.trim() : null;
+      }
+      if (l.ref && l.ref.startsWith('rec:')) {
+        const sub = db.recipes.find(x => x.id === l.ref.slice(4));
+        return sub ? `${l.qty} × ${sub.name}` : null;
+      }
+      return null;
+    }).filter(Boolean);
+    return { id: r.id, name: r.name, batchYield: r.batchYield || 1, outputUnit: r.outputUnit || 'portions', ingredients };
+  });
+  try {
+    const res = await fetch(url + '/rcc/batchRecipes.json', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    toast(`${payload.length} batch recipe${payload.length !== 1 ? 's' : ''} synced to Firebase.`);
+  } catch (e) { toast('Sync failed: ' + e.message, 'error'); }
+}
+
+async function importPendingProductionsFromFirebase() {
+  const url = getFbUrl();
+  if (!url) { toast('No Firebase URL set in Settings.', 'error'); return; }
+  try {
+    const res = await fetch(url + '/rcc/pendingProductions.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data) { toast('No pending productions found in Firebase.'); return; }
+    const incoming = Object.values(data);
+    db.productionBatches = db.productionBatches || [];
+    const existingIds = new Set(db.productionBatches.map(b => b.id));
+    let added = 0;
+    incoming.forEach(pb => {
+      if (existingIds.has(pb.id)) return;
+      const rec           = db.recipes.find(r => r.id === pb.recipeId);
+      const batchYield    = rec ? (rec.batchYield || 1) : 1;
+      const totalPortions = pb.batchesLogged * batchYield;
+      const rawCostTotal  = rec ? calcRecipeCost(rec.lines, true) * pb.batchesLogged : 0;
+      const cpPortion     = totalPortions > 0 ? rawCostTotal / totalPortions : 0;
+      const batchIng = getOrCreateBatchIngredient(pb.recipeId);
+      if (batchIng) {
+        batchIng.purchases.push({
+          id: uid(), batchId: pb.id, date: pb.date,
+          buyUnit: 'batch', buyQty: pb.batchesLogged,
+          baseUnits: totalPortions, totalPrice: rawCostTotal, cpru: cpPortion, obsolete: false
+        });
+        recalcWAC(batchIng);
+      }
+      db.productionBatches.push({
+        id: pb.id, date: pb.date, recipeId: pb.recipeId,
+        batchesLogged: pb.batchesLogged, portionsProduced: totalPortions, note: pb.note || ''
+      });
+      added++;
+    });
+    if (!added) { toast('No new productions to import (all already imported).'); return; }
+    await saveDB();
+    renderProduction();
+    closeModal('modal-settings');
+    toast(`${added} production batch${added !== 1 ? 'es' : ''} imported from Firebase.`);
   } catch (e) { toast('Import failed: ' + e.message, 'error'); }
 }
 

@@ -53,12 +53,16 @@ function renderProduction() {
   const sorted = [...db.productionBatches].sort((a, b) => b.date.localeCompare(a.date));
   tb.innerHTML = sorted.map(pb => {
     const rec          = db.recipes.find(r => r.id === pb.recipeId);
-    const rawCostTotal = rec ? calcRecipeCost(rec.lines, true) * pb.portionsProduced : 0;
+    const batches      = pb.batchesLogged !== undefined ? pb.batchesLogged : pb.portionsProduced;
+    const rawCostTotal = rec ? calcRecipeCost(rec.lines, true) * batches : 0;
     const cpPortion    = pb.portionsProduced > 0 ? rawCostTotal / pb.portionsProduced : 0;
+    const batchInfo    = pb.batchesLogged !== undefined
+      ? `${pb.batchesLogged} batch${pb.batchesLogged !== 1 ? 'es' : ''} → ${pb.portionsProduced} portions`
+      : `${pb.portionsProduced} portions`;
     return `<tr>
       <td>${pb.date}</td>
       <td><strong>${rec ? rec.name : '<span style="color:var(--danger)">(recipe deleted)</span>'}</strong></td>
-      <td>${pb.portionsProduced}</td>
+      <td>${batchInfo}</td>
       <td>$${fmt(rawCostTotal)} <span class="muted" style="font-size:.76rem">($${fmt(cpPortion)}/each)</span></td>
       <td style="color:var(--muted);font-size:.78rem">${pb.note || '—'}</td>
       <td class="flex">
@@ -112,9 +116,12 @@ function updateProductionPreview() {
   const rec = db.recipes.find(r => r.id === recipeId);
   if (!rec) { el.innerHTML = ''; return; }
 
+  const batchYield   = rec.batchYield || 1;
+  const totalPortions = qty * batchYield;
   const rawCostTotal = calcRecipeCost(rec.lines, true) * qty;
-  const cpPortion    = qty > 0 ? rawCostTotal / qty : 0;
+  const cpPortion    = totalPortions > 0 ? rawCostTotal / totalPortions : 0;
   el.innerHTML = `<div class="cb" style="margin-top:10px">
+    ${batchYield > 1 ? `<div class="muted" style="font-size:.78rem;margin-bottom:4px">${qty} batch${qty!==1?'es':''} × ${batchYield} portions = <strong>${totalPortions} portions</strong></div>` : ''}
     Batch cost: <strong style="color:var(--danger)">$${fmt(rawCostTotal)}</strong>
     &nbsp;|&nbsp;
     WAC per portion: <strong style="color:var(--accent2)">$${fmt(cpPortion)}</strong>
@@ -150,9 +157,11 @@ function saveProductionBatch() {
   }
 
   // Compute batch cost from current ingredient WAC
-  const rec          = db.recipes.find(r => r.id === recipeId);
-  const rawCostTotal = rec ? calcRecipeCost(rec.lines, true) * qty : 0;
-  const cpPortion    = qty > 0 ? rawCostTotal / qty : 0;
+  const rec           = db.recipes.find(r => r.id === recipeId);
+  const batchYield    = rec ? (rec.batchYield || 1) : 1;
+  const totalPortions = qty * batchYield;
+  const rawCostTotal  = rec ? calcRecipeCost(rec.lines, true) * qty : 0;
+  const cpPortion     = totalPortions > 0 ? rawCostTotal / totalPortions : 0;
 
   // Update the finished-goods ingredient: add a "purchase" record so WAC is recalculated
   const batchIng = getOrCreateBatchIngredient(recipeId);
@@ -162,8 +171,8 @@ function saveProductionBatch() {
       batchId,           // back-link so we can remove it if batch is edited/deleted
       date,
       buyUnit:    'batch',
-      buyQty:     1,
-      baseUnits:  qty,
+      buyQty:     qty,
+      baseUnits:  totalPortions,
       totalPrice: rawCostTotal,
       cpru:       cpPortion,
       obsolete:   false
@@ -172,12 +181,12 @@ function saveProductionBatch() {
   }
 
   db.productionBatches = db.productionBatches || [];
-  db.productionBatches.push({ id: batchId, date, recipeId, portionsProduced: qty, note });
+  db.productionBatches.push({ id: batchId, date, recipeId, batchesLogged: qty, portionsProduced: totalPortions, note });
 
   saveDB();
   closeModal('modal-production');
   renderProduction();
-  toast(`Batch logged — ${qty} portions of "${rec ? rec.name : ''}", WAC $${fmt(cpPortion)}/each.`);
+  toast(`Batch logged — ${qty} batch${qty!==1?'es':''} → ${totalPortions} portions of "${rec ? rec.name : ''}", WAC $${fmt(cpPortion)}/each.`);
   prodEditId = null;
 }
 

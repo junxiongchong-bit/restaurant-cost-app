@@ -23,14 +23,19 @@ function openRecipeModal(id=null) {
     document.getElementById('recipe-type').value = r.type;
     document.getElementById('recipe-yield').value = r.yield||'';
     document.getElementById('recipe-batch').checked = r.batchProduced || false;
+    document.getElementById('recipe-batch-yield').value = r.batchYield || '';
+    document.getElementById('recipe-output-unit').value = r.outputUnit || '';
     document.getElementById('recipe-sundry').value = r.sundryPct || 0;
     recipeLines = r.lines.map(l => ({...l, rowId: uid()}));
   } else {
     ['recipe-name','recipe-cat','recipe-yield'].forEach(x => document.getElementById(x).value = '');
     document.getElementById('recipe-type').value = 'menu';
     document.getElementById('recipe-batch').checked = false;
+    document.getElementById('recipe-batch-yield').value = '';
+    document.getElementById('recipe-output-unit').value = '';
     document.getElementById('recipe-sundry').value = 0;
   }
+  toggleBatchYield();
   renderRLs(); openModal('modal-recipe');
 }
 
@@ -65,24 +70,37 @@ function renderRLs() {
 
 function setRL(i, k, v) { recipeLines[i][k] = v; if(k === 'ref') renderRLs(); else updateRCP(); }
 
+function toggleBatchYield() {
+  const isBatch = document.getElementById('recipe-batch').checked;
+  document.getElementById('recipe-batch-yield-wrap').style.display = isBatch ? '' : 'none';
+  updateRCP();
+}
+
 function updateRCP() {
   const raw = calcRecipeCost(recipeLines.map(l => ({ ref: l.ref, qty: l.qty })), false);
   const adj = calcRecipeCost(recipeLines.map(l => ({ ref: l.ref, qty: l.qty })), true);
   const pct = parseFloat(document.getElementById('recipe-sundry').value) || 0;
   const total = adj * (1 + pct / 100);
+  const isBatch = document.getElementById('recipe-batch')?.checked;
+  const batchYield = parseInt(document.getElementById('recipe-batch-yield')?.value) || 0;
+  const cpp = (isBatch && batchYield > 0) ? total / batchYield : 0;
   document.getElementById('recipe-cost-preview').innerHTML =
     `WAC Cost: <strong style="color:var(--accent2)">$${fmt(raw)}</strong> &nbsp;|&nbsp; Yield-adjusted: <strong style="color:var(--danger)">$${fmt(adj)}</strong>` +
-    (pct > 0 ? ` &nbsp;|&nbsp; +${fmt(pct,1)}% sundry: <strong style="color:var(--warn)">$${fmt(total)}</strong>` : '');
+    (pct > 0 ? ` &nbsp;|&nbsp; +${fmt(pct,1)}% sundry: <strong style="color:var(--warn)">$${fmt(total)}</strong>` : '') +
+    (cpp > 0 ? ` &nbsp;|&nbsp; Cost/portion: <strong style="color:var(--accent2)">$${fmt(cpp)}</strong>` : '');
 }
 
 function saveRecipe() {
   const name = document.getElementById('recipe-name').value.trim();
   if(!name) { toast('Name required.', 'error'); return; }
+  const isBatch = document.getElementById('recipe-batch').checked;
   const obj = { id: editId||uid(), name,
     category:     document.getElementById('recipe-cat').value.trim(),
     type:         document.getElementById('recipe-type').value,
     yield:        document.getElementById('recipe-yield').value,
-    batchProduced: document.getElementById('recipe-batch').checked,
+    batchProduced: isBatch,
+    batchYield:   isBatch ? (parseInt(document.getElementById('recipe-batch-yield').value) || 1) : undefined,
+    outputUnit:   isBatch ? (document.getElementById('recipe-output-unit').value.trim() || 'portions') : undefined,
     sundryPct: parseFloat(document.getElementById('recipe-sundry').value) || 0,
     lines: recipeLines.filter(l => l.ref).map(l => ({ ref: l.ref, qty: l.qty })) };
   if(editId) { const i = db.recipes.findIndex(x => x.id === editId); db.recipes[i] = obj; }
@@ -142,7 +160,7 @@ function renderRecipes() {
     const sundry = r.sundryPct || 0;
     const total  = adj * (1 + sundry / 100);
     return `<tr>
-      <td><strong>${r.name}</strong>${r.yield ? `<div class="muted">${r.yield}</div>` : ''}</td>
+      <td><strong>${r.name}</strong>${r.yield ? `<div class="muted">${r.yield}</div>` : ''}${r.batchProduced && r.batchYield ? `<div class="muted" style="font-size:.74rem">${r.batchYield} portions/batch</div>` : ''}</td>
       <td>${r.category ? `<span class="badge bb">${r.category}</span>` : '<span class="muted">—</span>'}</td>
       <td>
         <span class="badge ${r.type==='base'?'bp':'bg'}">${r.type==='base'?'Sub-Recipe':'Menu'}</span>
