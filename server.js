@@ -38,7 +38,7 @@ async function fetchAllSquareOrders(token, locationIds, from, to, cursor) {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'Square-Version': '2024-01-18',
+        'Square-Version': '2025-07-17',
         'Content-Length': Buffer.byteLength(body),
       },
     };
@@ -52,7 +52,7 @@ async function fetchAllSquareOrders(token, locationIds, from, to, cursor) {
           if (json.errors) return reject(new Error(JSON.stringify(json.errors)));
           const orders = json.orders || [];
           if (json.cursor) {
-            const more = await fetchAllSquareOrders(token, locationId, from, to, json.cursor);
+            const more = await fetchAllSquareOrders(token, locationIds, from, to, json.cursor);
             resolve(orders.concat(more));
           } else {
             resolve(orders);
@@ -83,13 +83,20 @@ const server = http.createServer(async (req, res) => {
     req.on('data', chunk => { body += chunk; });
     req.on('end', async () => {
       try {
-        const { token, locationId, from, to } = JSON.parse(body);
-        if (!token || !locationId || !from || !to) {
+        console.log('[Square] raw body:', body);
+        const { token, locationIds, from, to } = JSON.parse(body);
+        console.log('[Square] token:', token ? token.slice(0,10)+'…' : 'MISSING', '| locationIds:', locationIds, '| from:', from, '| to:', to);
+        const missing = [];
+        if (!token) missing.push('token');
+        if (!locationIds || !locationIds.length) missing.push('locationIds');
+        if (!from) missing.push('from');
+        if (!to) missing.push('to');
+        if (missing.length) {
           res.writeHead(400, { 'Content-Type': 'application/json', ...CORS_HEADERS });
-          res.end(JSON.stringify({ error: 'Missing required fields' }));
+          res.end(JSON.stringify({ error: `Missing required fields: ${missing.join(', ')}` }));
           return;
         }
-        const orders = await fetchAllSquareOrders(token, locationId, from, to);
+        const orders = await fetchAllSquareOrders(token, locationIds, from, to);
         res.writeHead(200, { 'Content-Type': 'application/json', ...CORS_HEADERS });
         res.end(JSON.stringify({ orders }));
       } catch (e) {

@@ -15,47 +15,45 @@ function switchPrepTab(tab, btn) {
   else renderPrep();
 }
 
-const PREP_CATS = ['Slice','Cook','Prep','Mix','Portion','Wash & Portion','Precook'];
+const PREP_CATS = ['Meat','Vege','Sauces','Cheese','Pasta','Seafood'];
 
 const PREP_DEFAULTS = [
-  // Slice
-  { category:'Slice', name:'Mushroom' },
-  { category:'Slice', name:'Onion' },
-  { category:'Slice', name:'Hams' },
-  { category:'Slice', name:'Salami' },
-  { category:'Slice', name:'Calabrese' },
-  { category:'Slice', name:'Capsicum' },
-  { category:'Slice', name:'Chicken' },
-  { category:'Slice', name:'Zucchini' },
-  { category:'Slice', name:'Cherry Tomato' },
-  { category:'Slice', name:'Bacon' },
-  // Cook
-  { category:'Cook', name:'Sausages (crush)' },
-  { category:'Cook', name:'Prawns' },
-  { category:'Cook', name:'Chips' },
-  // Prep
-  { category:'Prep', name:'Olive' },
-  { category:'Prep', name:'Pineapple' },
-  { category:'Prep', name:'Anchovies' },
-  // Mix
-  { category:'Mix', name:'Mozzarella Cheese' },
-  { category:'Mix', name:'Tomato Sauce' },
-  { category:'Mix', name:'Spicy Mayo' },
-  { category:'Mix', name:'Truffle Mayo' },
-  { category:'Mix', name:'Italian Chili Oil' },
-  { category:'Mix', name:'BBQ Sauce' },
-  { category:'Mix', name:'Pesto Sauce' },
-  // Portion
-  { category:'Portion', name:'Seafood Mix' },
-  { category:'Portion', name:'Burrata Cheese' },
-  { category:'Portion', name:'Straciatella' },
-  // Wash & Portion
-  { category:'Wash & Portion', name:'Mussels' },
-  // Precook
-  { category:'Precook', name:'Penne' },
-  { category:'Precook', name:'Spaghetti' },
-  { category:'Precook', name:'Gluten Free Penne' },
-  { category:'Precook', name:'Tagliatelle' },
+  // Meat
+  { category:'Meat', name:'Chicken' },
+  { category:'Meat', name:'Hams' },
+  { category:'Meat', name:'Salami' },
+  { category:'Meat', name:'Calabrese' },
+  { category:'Meat', name:'Bacon' },
+  { category:'Meat', name:'Sausages (crush)' },
+  // Vege
+  { category:'Vege', name:'Mushroom' },
+  { category:'Vege', name:'Onion' },
+  { category:'Vege', name:'Capsicum' },
+  { category:'Vege', name:'Zucchini' },
+  { category:'Vege', name:'Cherry Tomato' },
+  { category:'Vege', name:'Olive' },
+  { category:'Vege', name:'Pineapple' },
+  // Sauces
+  { category:'Sauces', name:'Tomato Sauce' },
+  { category:'Sauces', name:'Spicy Mayo' },
+  { category:'Sauces', name:'Truffle Mayo' },
+  { category:'Sauces', name:'Italian Chili Oil' },
+  { category:'Sauces', name:'BBQ Sauce' },
+  { category:'Sauces', name:'Pesto Sauce' },
+  // Cheese
+  { category:'Cheese', name:'Mozzarella Cheese' },
+  { category:'Cheese', name:'Burrata Cheese' },
+  { category:'Cheese', name:'Straciatella' },
+  // Pasta
+  { category:'Pasta', name:'Penne' },
+  { category:'Pasta', name:'Spaghetti' },
+  { category:'Pasta', name:'Gluten Free Penne' },
+  { category:'Pasta', name:'Tagliatelle' },
+  // Seafood
+  { category:'Seafood', name:'Prawns' },
+  { category:'Seafood', name:'Seafood Mix' },
+  { category:'Seafood', name:'Mussels' },
+  { category:'Seafood', name:'Anchovies' },
 ];
 
 function seedPrepDefaults() {

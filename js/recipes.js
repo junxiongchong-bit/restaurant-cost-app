@@ -54,14 +54,33 @@ function getRLUnit(ref) {
   return 'portion';
 }
 
+function getRLCost(l) {
+  if(!l.ref || !l.qty) return '';
+  if(l.ref.startsWith('ing:')) {
+    const ing = db.ingredients.find(i => i.id === l.ref.slice(4));
+    if(!ing) return '';
+    const wac = effectiveCost(ing);
+    const lineTotal = wac * l.qty;
+    return `<span class="muted" style="font-size:.78rem">$${fmt(wac)}/${ing.recipeUnit} &nbsp;=&nbsp; <strong style="color:var(--accent2)">$${fmt(lineTotal)}</strong></span>`;
+  }
+  if(l.ref.startsWith('rec:')) {
+    const rec = db.recipes.find(r => r.id === l.ref.slice(4));
+    if(!rec) return '';
+    const lineTotal = calcRecipeCost(rec.lines, true) * l.qty;
+    return `<span class="muted" style="font-size:.78rem"><strong style="color:var(--accent2)">$${fmt(lineTotal)}</strong></span>`;
+  }
+  return '';
+}
+
 function renderRLs() {
   const el = document.getElementById('recipe-lines');
   if(!recipeLines.length) { el.innerHTML = '<div class="muted" style="padding:10px 0">No lines yet.</div>'; updateRCP(); return; }
   el.innerHTML = recipeLines.map((l, i) => `
-    <div style="display:grid;grid-template-columns:2fr 120px 70px auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+    <div style="display:grid;grid-template-columns:2fr 120px 60px 1fr auto;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <select onchange="setRL(${i},'ref',this.value)">${buildRefOpts()}</select>
       <input type="number" step="0.1" placeholder="Qty" value="${l.qty||''}" onchange="setRL(${i},'qty',parseFloat(this.value)||0)">
       <span class="muted">${getRLUnit(l.ref)}</span>
+      <div>${getRLCost(l)}</div>
       <button class="btn btn-danger btn-sm" onclick="removeRL(${i})">✕</button>
     </div>`).join('');
   recipeLines.forEach((l, i) => { const s = el.querySelectorAll('select')[i]; if(l.ref) s.value = l.ref; });
@@ -244,11 +263,16 @@ function renderMenu() {
     const ingCost = rec ? calcRecipeCost(rec.lines, true) : 0;
     const sundry  = rec ? (rec.sundryPct || 0) : 0;
     const cost    = ingCost * (1 + sundry / 100);
-    const pct     = m.price > 0 ? (cost/m.price*100) : 0;
-    return { m, rec, cost, pct, profit: m.price - cost };
+    // Average sell price from actual sales data
+    const itemSales = (db.sales || []).filter(s => s.itemId === m.id);
+    const totalQty  = itemSales.reduce((a, s) => a + (s.qty || 0), 0);
+    const totalRev  = itemSales.reduce((a, s) => a + (s.revenue || 0), 0);
+    const avgSell   = totalQty > 0 ? totalRev / totalQty : m.price;
+    const pct     = avgSell > 0 ? (cost/avgSell*100) : 0;
+    return { m, rec, cost, pct, profit: avgSell - cost, avgSell, hasSales: totalQty > 0 };
   });
   const sorted = sortApply(withCost, 'menu', (x, col) => ({
-    name: x.m.name, cat: x.m.category||'', sell: x.m.price,
+    name: x.m.name, cat: x.m.category||'', sell: x.avgSell,
     cost: x.cost, pct: x.pct, profit: x.profit
   })[col] ?? x.m.name);
   applyHdrs('menu', {
@@ -259,14 +283,17 @@ function renderMenu() {
   if(!sorted.length) {
     tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">No menu items.</td></tr>';
   } else {
-    tb.innerHTML = sorted.map(({ m, rec, cost, pct }) => {
+    tb.innerHTML = sorted.map(({ m, rec, cost, pct, avgSell, hasSales, profit }) => {
+      const sellDisplay = hasSales
+        ? `$${fmt(avgSell)} <span class="muted" style="font-size:0.75em" title="Average from sales data">avg</span>`
+        : `$${fmt(avgSell)}`;
       return `<tr>
         <td><strong>${m.name}</strong></td>
         <td>${m.category ? `<span class="badge bb">${m.category}</span>` : '<span class="muted">—</span>'}</td>
         <td>${rec ? rec.name : '<span style="color:var(--danger)">No recipe</span>'}</td>
-        <td>$${fmt(m.price)}</td><td>$${fmt(cost)}</td>
+        <td>${sellDisplay}</td><td>$${fmt(cost)}</td>
         <td><span class="badge ${pctCls(pct)}">${fmt(pct,1)}%</span></td>
-        <td style="color:var(--accent2)">$${fmt(m.price-cost)}</td>
+        <td style="color:var(--accent2)">$${fmt(profit)}</td>
         <td class="flex">
           <button class="btn btn-ghost btn-sm" onclick="openMenuModal('${m.id}')">Edit</button>
           <button class="btn btn-danger btn-sm" onclick="deleteMenuItem('${m.id}')">Del</button>

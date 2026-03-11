@@ -49,20 +49,39 @@ function deleteSale(id) {
 function renderSales() {
   const tb = document.getElementById('sales-table');
   if(!db.sales.length) {
-    tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">No sales.</td></tr>'; return;
+    tb.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:28px">No sales.</td></tr>'; return;
   }
-  tb.innerHTML = [...db.sales].sort((a,b) => b.date.localeCompare(a.date)).map(s => {
-    const m   = db.menuItems.find(x => x.id === s.itemId);
-    const tc  = (s.snapshotCost||0) * s.qty;
+  let rows = db.sales.map(s => {
+    const m  = db.menuItems.find(x => x.id === s.itemId);
+    const tc = (s.snapshotCost||0) * s.qty;
     const pct = s.revenue > 0 ? (tc/s.revenue*100) : 0;
-    return `<tr>
-      <td>${s.date}</td><td>${m?.name||'—'}</td><td>${s.qty}</td><td>$${fmt(s.revenue)}</td>
-      <td>$${fmt(tc)}<div class="muted">@$${fmt(s.snapshotCost,5)}/unit</div></td>
-      <td><span class="badge ${pctCls(pct)}">${fmt(pct,1)}%</span></td>
-      <td style="color:var(--accent2)">$${fmt(s.revenue-tc)}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="deleteSale('${s.id}')">Del</button></td>
-    </tr>`;
-  }).join('');
+    return { s, m, tc, pct, profit: s.revenue - tc };
+  });
+  rows = sortApply(rows, 'sales', (r, col) => ({
+    date: r.s.date, name: r.m?.name||'', channel: r.s.channelLabel||'',
+    qty: r.s.qty, rev: r.s.revenue, cost: r.tc, pct: r.pct, profit: r.profit
+  })[col] ?? r.s.date);
+  applyHdrs('sales', {
+    'th-sales-date':    ['date',    'Date'],
+    'th-sales-name':    ['name',    'Item'],
+    'th-sales-channel': ['channel', 'Channel'],
+    'th-sales-qty':     ['qty',     'Qty'],
+    'th-sales-rev':     ['rev',     'Revenue'],
+    'th-sales-cost':    ['cost',    'Cost (snap)'],
+    'th-sales-pct':     ['pct',     'Cost %'],
+    'th-sales-profit':  ['profit',  'Profit'],
+  });
+  tb.innerHTML = rows.map(({ s, m, tc, pct }) => `<tr>
+    <td>${s.date}</td>
+    <td>${m?.name||'—'}</td>
+    <td>${s.channelLabel ? `<span class="badge ${s.channel==='square'?'bg':'bp'}">${s.channelLabel}</span>` : '<span class="muted">—</span>'}</td>
+    <td>${s.qty}</td>
+    <td>$${fmt(s.revenue)}</td>
+    <td>$${fmt(tc)}<div class="muted">@$${fmt(s.snapshotCost,5)}/unit</div></td>
+    <td><span class="badge ${pctCls(pct)}">${fmt(pct,1)}%</span></td>
+    <td style="color:var(--accent2)">$${fmt(s.revenue-tc)}</td>
+    <td><button class="btn btn-danger btn-sm" onclick="deleteSale('${s.id}')">Del</button></td>
+  </tr>`).join('');
 }
 
 function exportSalesCSV() {

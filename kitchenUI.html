@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=320, initial-scale=1.0, user-scalable=no">
   <title>Kitchen</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -274,8 +274,8 @@
         <div><input type="text"   id="lp-note"    placeholder="Note (optional)"></div>
       </div>
       <div class="form-actions">
-        <button class="btn btn-ghost btn-sm" id="lp-cancel-btn" onclick="toggleLogForm()">Cancel</button>
-        <button class="btn btn-success btn-sm" id="lp-submit-btn" onclick="submitProduction()">Submit</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleLogForm()">Cancel</button>
+        <button class="btn btn-success btn-sm" onclick="submitProduction()">Submit</button>
       </div>
     </div>
 
@@ -464,12 +464,12 @@ async function loadAllYieldLogs() {
   if (allYieldLogs !== null) return;
   try {
     const d = await fbGet('/rcc/pendingYieldLogs');
-    allYieldLogs = d ? Object.values(d) : [];
+    allYieldLogs = d ? Object.values(d).filter(Boolean) : [];
   } catch(e) { allYieldLogs = []; }
 }
 
-function getTaskYieldToday(taskId) {
-  const entries = (allYieldLogs || []).filter(l => l.taskId === taskId && l.date === todayStr());
+function getTaskYieldForDate(taskId, date) {
+  const entries = (allYieldLogs || []).filter(l => l.taskId === taskId && l.date === date);
   if (!entries.length) return null;
   // Return latest entry (id is timestamp-based, lexicographic sort is chronological)
   const latest = entries.sort((a, b) => (b.id||'').localeCompare(a.id||''))[0];
@@ -510,18 +510,21 @@ function renderPrep() {
         const isDone       = !!c.done;
         const isOpen       = expandedPanels.has(t.id)     && isToday && !isDone;
         const isEditOpen   = expandedEditPanels.has(t.id) && isToday &&  isDone;
-        const yieldLog     = isToday ? getTaskYieldToday(t.id) : null;
+        const yieldLog     = getTaskYieldForDate(t.id, prepDate);
 
         // Right badge
         let badge = '';
-        if (isDone && yieldLog && isToday) {
+        if (yieldLog && (!isToday || isDone)) {
+          // Show yield badge: for past dates always show if yield exists; for today only if task is done
           const iG  = toGrams(yieldLog.inputQty, yieldLog.inputUnit);
           const oG  = toGrams(yieldLog.outputQty, yieldLog.outputUnit);
           const yp  = iG > 0 ? (oG / iG * 100) : 0;
           const col = yp >= 80 ? 'var(--accent2)' : yp >= 60 ? 'var(--warn)' : 'var(--danger)';
-          badge = `<span id="yb-${t.id}" style="font-size:.8rem;font-weight:700;color:${col}">${yp.toFixed(1)}% ${isEditOpen ? '▲' : '✏'}</span>`;
-        } else if (isDone && !yieldLog) {
-          badge = isDone ? '' : '';  // no yield badge
+          if (isToday) {
+            badge = `<span id="yb-${t.id}" style="font-size:.8rem;font-weight:700;color:${col}">${yp.toFixed(1)}% ${isEditOpen ? '▲' : '✏'}</span>`;
+          } else {
+            badge = `<span style="font-size:.8rem;font-weight:700;color:${col}">${yp.toFixed(1)}%</span>`;
+          }
         } else if (!isDone && isToday) {
           badge = `<span id="yb-${t.id}" style="font-size:.72rem;color:var(--muted)">${isOpen ? '▲' : '▼ yield'}</span>`;
         }

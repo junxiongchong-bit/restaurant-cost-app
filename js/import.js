@@ -108,6 +108,265 @@ function openEmailInvoice(idx) {
   });
 }
 
+// ── BULK CSV IMPORT ───────────────────────────────────────────────────────────
+// Upload a multi-invoice CSV → AI matches ALL unique products at once →
+// single review table → one approve that imports every purchase row.
+//
+// CSV columns: Supplier, Invoice No, Invoice Date, Product Name, Buy Unit,
+//              Qty, Total Price ($), Pack Count, Pack Size, Pack Unit
+
+let bulkCSVState = null;
+// bulkCSVState = { rows: [...all purchase rows...],
+//                  uniqueItems: [{ key, name, rows, matchedIngredientId }] }
+
+async function startBulkCSVImport(input) {
+  const file = input.files[0]; if (!file) return; input.value = '';
+  const st   = document.getElementById('bulk-csv-status');
+  const show = msg => { if (st) { st.style.display = 'block'; st.textContent = msg; } };
+  const hide = ()   => { if (st) st.style.display = 'none'; };
+
+  show('🔄 Parsing CSV…');
+  try {
+    const text = await file.text();
+    const rows = parseBulkCSVRows(text);
+    if (!rows.length) { hide(); toast('No rows found in CSV.', 'warn'); return; }
+
+    // Unique product names (case-insensitive dedup, preserve first-seen casing)
+    const uniqueMap = {};
+    rows.forEach(r => {
+      const key = r.name.toLowerCase().trim();
+      if (!uniqueMap[key]) uniqueMap[key] = { key, name: r.name, rows: [] };
+      uniqueMap[key].rows.push(r);
+    });
+    const uniqueItems = Object.values(uniqueMap).map(u => ({ ...u, matchedIngredientId: null }));
+
+    show(`🤖 AI matching ${uniqueItems.length} unique products to your ingredient library…`);
+
+    // Single AI call for all unique names
+    if (db.ingredients.length > 0) {
+      const ingList = db.ingredients.map(i => ({ id: i.id, name: i.name }));
+      const prompt =
+        `Match each invoice product to the closest ingredient in the library.\n` +
+        `Return ONLY a JSON array: [{"invoiceIndex":0,"suggestedIngredientId":"id_or_null"}]\n` +
+        `Set suggestedIngredientId to null if there is no reasonable match.\n\n` +
+        `Invoice products:\n` + uniqueItems.map((u, i) => `${i}. "${u.name}"`).join('\n') + `\n\n` +
+        `Library:\n` + ingList.map(i => `id:"${i.id}" name:"${i.name}"`).join('\n');
+
+      const res  = await claudePost({ model: 'claude-sonnet-4-20250514', max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }] });
+      const d    = await res.json();
+      const txt  = d.content?.map(x => x.text || '').join('').replace(/```json|```/g, '').trim();
+      const sugg = JSON.parse(txt);
+      sugg.forEach(s => {
+        if (s.invoiceIndex >= 0 && s.invoiceIndex < uniqueItems.length)
+          uniqueItems[s.invoiceIndex].matchedIngredientId = s.suggestedIngredientId || null;
+      });
+    }
+
+    bulkCSVState = { rows, uniqueItems };
+    hide();
+    renderBulkCSVModal();
+    openModal('modal-bulk-csv');
+
+  } catch(e) {
+    show('❌ Error: ' + e.message);
+  }
+}
+
+function parseBulkCSVRows(text) {
+  const lines = text.trim().split('\n');
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    const cols = parseCSVLine(lines[i]);
+    if (cols.length < 10) continue;
+    const [supplier, invoiceNo, date, name, buyUnit, qty, totalPrice, packCount, packSize, packUnit] =
+      cols.map(c => c.trim());
+    if (!name) continue;
+    const pu = csvNormPackUnit(packUnit);
+    const bu = csvNormBuyUnit(buyUnit);
+    const dp = date.split('/');
+    out.push({
+      supplier, invoiceNo,
+      date: dp.length === 3 ? `${dp[2]}-${dp[1].padStart(2,'0')}-${dp[0].padStart(2,'0')}` : date,
+      name,
+      buy_unit:    bu,
+      buy_qty:     parseFloat(qty) || 1,
+      total_price: parseFloat(totalPrice.replace(/,/g, '')) || 0,
+      pack_count:  parseFloat(packCount) || null,
+      pack_size:   parseFloat(packSize)  || null,
+      pack_unit:   pu,
+      recipe_unit: csvRecipeUnit(pu)
+    });
+  }
+  return out;
+}
+
+function csvNormBuyUnit(u) {
+  u = (u || '').toLowerCase();
+  if (['lt','l','litre','liter'].includes(u)) return 'L';
+  if (['drum','pack'].includes(u))            return 'each';
+  return u;
+}
+function csvNormPackUnit(u) {
+  u = (u || '').toLowerCase();
+  if (['lt','l','litre','liter'].includes(u)) return 'L';
+  return u;
+}
+function csvRecipeUnit(pu) {
+  if (pu === 'kg' || pu === 'g')  return 'g';
+  if (pu === 'L'  || pu === 'ml') return 'ml';
+  return 'each';
+}
+
+function renderBulkCSVModal() {
+  const { uniqueItems, rows } = bulkCSVState;
+  const matched    = uniqueItems.filter(u => u.matchedIngredientId).length;
+  const unmatched  = uniqueItems.length - matched;
+  const totalSpend = rows.reduce((s, r) => s + r.total_price, 0);
+
+  const ingOpts = '<option value="">— Skip (don\'t import) —</option>' +
+    '<option value="__new__">＋ Create as new ingredient</option>' +
+    db.ingredients.map(i => `<option value="${i.id}">${i.name} (${i.recipeUnit})</option>`).join('');
+
+  document.getElementById('bulk-csv-modal-content').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+      <div class="stat" style="padding:10px">
+        <div class="stat-val" style="font-size:1.1rem">${rows.length}</div>
+        <div class="stat-label">Purchase rows</div>
+      </div>
+      <div class="stat" style="padding:10px">
+        <div class="stat-val" style="font-size:1.1rem">${uniqueItems.length}</div>
+        <div class="stat-label">Unique products</div>
+      </div>
+      <div class="stat" style="padding:10px">
+        <div class="stat-val" style="font-size:1.1rem;color:var(--accent2)">${matched}</div>
+        <div class="stat-label">AI matched</div>
+      </div>
+      <div class="stat" style="padding:10px">
+        <div class="stat-val" style="font-size:1.1rem;color:var(--warn)">${unmatched}</div>
+        <div class="stat-label">Unmatched → will create new</div>
+      </div>
+    </div>
+    <div style="font-size:.78rem;color:var(--muted);margin-bottom:8px">
+      Review AI matches. Unmatched items default to <strong>Create as new ingredient</strong>.
+      Change to <em>Skip</em> for anything you don't want imported (e.g. non-food supplies).
+    </div>
+    <div style="overflow-x:auto;max-height:420px;overflow-y:auto">
+      <table style="font-size:.79rem">
+        <thead><tr>
+          <th>Product Name</th><th>Supplier(s)</th>
+          <th style="text-align:center">Purchases</th>
+          <th style="text-align:right">Total Spend</th>
+          <th>Link to Ingredient</th>
+        </tr></thead>
+        <tbody>
+          ${uniqueItems.map((u, idx) => {
+            const suppliers = [...new Set(u.rows.map(r => r.supplier))].join(', ');
+            const spend     = u.rows.reduce((s, r) => s + r.total_price, 0);
+            const selVal    = u.matchedIngredientId || '__new__';
+            return `<tr style="${!u.matchedIngredientId ? 'background:rgba(255,217,61,.04)' : ''}">
+              <td><strong>${u.name}</strong></td>
+              <td style="color:var(--muted);font-size:.75rem">${suppliers}</td>
+              <td style="text-align:center">${u.rows.length}</td>
+              <td style="text-align:right">$${fmt(spend)}</td>
+              <td>
+                <select style="font-size:.76rem;min-width:220px" onchange="setBulkMatch(${idx},this.value)">
+                  ${ingOpts.replace(`value="${selVal}"`, `value="${selVal}" selected`)}
+                </select>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:.78rem;color:var(--muted);margin-top:10px">
+      Total across all invoices: <strong>$${fmt(totalSpend)}</strong>
+    </div>`;
+
+  document.getElementById('bulk-csv-modal-footer').innerHTML =
+    `<button class="btn btn-ghost" onclick="closeModal('modal-bulk-csv')">Cancel</button>
+     <button class="btn btn-success" onclick="approveBulkCSVImport()">✓ Approve & Import All</button>`;
+}
+
+function setBulkMatch(idx, val) {
+  if (bulkCSVState) bulkCSVState.uniqueItems[idx].matchedIngredientId = val || null;
+}
+
+function approveBulkCSVImport() {
+  const { rows, uniqueItems } = bulkCSVState;
+
+  // Resolve name → ingredient ID (create new ingredients where "__new__")
+  const nameToIngId = {};
+  uniqueItems.forEach(u => {
+    if (!u.matchedIngredientId) return; // skip
+    if (u.matchedIngredientId === '__new__') {
+      const sample = u.rows[0];
+      const newIng = {
+        id: uid(), name: u.name, category: '',
+        supplierId: getOrCreateSupplierByName(sample.supplier),
+        recipeUnit: sample.recipe_unit || 'g',
+        yield: 100, costImpact: '',
+        wac: 0, totalBaseUnits: 0, purchases: []
+      };
+      if (!db.ingredients) db.ingredients = [];
+      db.ingredients.push(newIng);
+      nameToIngId[u.key] = newIng.id;
+    } else {
+      nameToIngId[u.key] = u.matchedIngredientId;
+    }
+  });
+
+  // Add purchase records; accumulate importLog entries by invoice
+  const invoiceLog = {};
+  let totalAdded = 0;
+  rows.forEach(r => {
+    const ingId = nameToIngId[r.name.toLowerCase().trim()]; if (!ingId) return;
+    const ing   = db.ingredients.find(x => x.id === ingId);  if (!ing)  return;
+    const cpu   = calcCPU(r.total_price, r.buy_qty, r.pack_count, r.pack_size, r.pack_unit, r.buy_unit);
+    if (!cpu) return;
+    const baseUnits = getBaseUnits(r.buy_qty, r.pack_count, r.pack_size, r.pack_unit, r.buy_unit);
+    const supId     = getOrCreateSupplierByName(r.supplier);
+    if (!ing.purchases) ing.purchases = [];
+    ing.purchases.push({
+      id: uid(), date: r.date, supplierId: supId,
+      invoiceNo: r.invoiceNo || null,
+      buyUnit: r.buy_unit, buyQty: r.buy_qty,
+      packCount: r.pack_count || null, packSize: r.pack_size || null, packUnit: r.pack_unit,
+      totalPrice: r.total_price, cpru: cpu, baseUnits, obsolete: false
+    });
+    recalcWAC(ing);
+    totalAdded++;
+
+    const lk = `${r.supplier}|||${r.invoiceNo}`;
+    if (!invoiceLog[lk]) invoiceLog[lk] = { supplier: r.supplier, invoiceNo: r.invoiceNo, date: r.date, supplierId: supId, matchedCount: 0, totalValue: 0 };
+    invoiceLog[lk].matchedCount++;
+    invoiceLog[lk].totalValue += r.total_price;
+  });
+
+  if (!db.importLog) db.importLog = [];
+  Object.values(invoiceLog).forEach(l => {
+    db.importLog.push({
+      id: uid(), date: l.date, filename: l.invoiceNo, invoiceNo: l.invoiceNo,
+      type: 'invoice', supplierId: l.supplierId, supplierName: l.supplier,
+      itemCount: l.matchedCount, matchedCount: l.matchedCount,
+      skippedItems: [], totalValue: l.totalValue, status: 'approved'
+    });
+  });
+
+  saveDB(); closeModal('modal-bulk-csv'); renderIngredients(); renderImportLog();
+  const newCount = uniqueItems.filter(u => u.matchedIngredientId === '__new__').length;
+  toast(`Bulk import done: ${totalAdded} purchases added${newCount ? `, ${newCount} new ingredients created` : ''}.`);
+  bulkCSVState = null;
+}
+
+function getOrCreateSupplierByName(name) {
+  if (!db.suppliers) db.suppliers = [];
+  let s = db.suppliers.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if (!s) { s = { id: uid(), name, contact: '', email: '', phone: '', notes: '' }; db.suppliers.push(s); }
+  return s.id;
+}
+
 // ── SETTINGS HELPERS ─────────────────────────────────────────────────────────
 function getDeliveryCommission() {
   return parseFloat(localStorage.getItem('rcc-delivery-commission') || '37') / 100;
@@ -233,7 +492,7 @@ function parseSquareCSV(csvText) {
     if (!item || item.startsWith('Order ID') || item.startsWith('DELIVERY') || net <= 0 || qty <= 0) continue;
 
     const isDelivery  = channel.toLowerCase().includes(deliveryChannel);
-    const channelType = isDelivery ? 'delivery' : 'dinein';
+    const channelType = isDelivery ? 'doshii' : 'square';
     const commissionLost = isDelivery ? net * commission : 0;
     const trueNet        = isDelivery ? net * (1 - commission) : net;
 
@@ -249,7 +508,7 @@ function parseSquareCSV(csvText) {
         variation:    varLabel,    // Price Point Name (size, etc.)
         modifiers:    modifiers,   // raw modifier string as-is for display/lookup
         channel:      channelType,
-        channelLabel: isDelivery ? 'Delivery' : 'Dine-in',
+        channelLabel: isDelivery ? 'Doshii' : 'Square',
         qty:          0,
         grossRevenue: 0,
         trueRevenue:  0,
@@ -308,12 +567,23 @@ function parseSquareOrders(orders) {
   const itemMap = {};
 
   for (const order of (orders || [])) {
-    // Detect channel from fulfillment type or source name
-    const fulfillmentType = (order.fulfillments && order.fulfillments[0] && order.fulfillments[0].type) || '';
-    const sourceName = (order.source && order.source.name || '').toLowerCase();
-    const isDelivery = fulfillmentType === 'DELIVERY' || sourceName.includes(deliveryChannel);
-    const channelType  = isDelivery ? 'delivery' : 'dinein';
-    const channelLabel = isDelivery ? 'Delivery' : 'Dine-in';
+    // For OPEN orders (Doshii/Uber Eats), only count if the fulfillment was actually PREPARED.
+    // Skips abandoned Square Online orders (DRAFT/CANCELLED) and other unfulfilled OPEN orders.
+    if (order.state === 'OPEN') {
+      const fulfilled = (order.fulfillments || []).some(f => f.state === 'PREPARED' || f.state === 'COMPLETED');
+      if (!fulfilled) continue;
+    }
+
+    // Channel detection: source name or tender source must explicitly match the delivery channel name
+    const sourceName      = (order.source && order.source.name || '').toLowerCase();
+    const tenderSource    = (order.tenders && order.tenders[0] && order.tenders[0].other_details && order.tenders[0].other_details.source || '').toLowerCase();
+    const isDelivery = deliveryChannel
+      && (sourceName.includes(deliveryChannel) || tenderSource.includes(deliveryChannel));
+    const channelType  = isDelivery ? 'doshii' : 'square';
+    const channelLabel = isDelivery ? 'Doshii' : 'Square';
+
+    // Extract order date (YYYY-MM-DD) from created_at timestamp
+    const orderDate = (order.created_at || '').slice(0, 10);
 
     for (const li of (order.line_items || [])) {
       const name      = li.name || '';
@@ -321,24 +591,26 @@ function parseSquareOrders(orders) {
       if (!name) continue;
 
       const qty     = parseInt(li.quantity) || 0;
-      // Square prices are GST-inclusive in Australia.
-      // gross_sales_money = item price × qty (may include card surcharge apportionment)
-      // total_tax_money   = GST component (inclusive)
-      // Net ex-GST = gross_sales_money - total_tax_money  (matches Square CSV "Net Sales")
-      const grossAmt = (li.gross_sales_money && li.gross_sales_money.amount) || 0;
-      const taxAmt   = (li.total_tax_money   && li.total_tax_money.amount)   || 0;
-      const gross    = grossAmt / 100;
-      const net      = (grossAmt - taxAmt) / 100;
+      // gross_sales_money = item price × qty, ex-discounts, GST-inclusive
+      // net_sales_money   = ex-discounts, ex-GST — matches Square CSV "Net Sales"
+      const grossAmt    = (li.gross_sales_money && li.gross_sales_money.amount) || 0;
+      const netSalesAmt = (li.net_sales_money   && li.net_sales_money.amount)   != null
+                          ? li.net_sales_money.amount : grossAmt;
+      const gross       = grossAmt / 100;
+      const net         = netSalesAmt / 100;
 
       if (qty <= 0 || net <= 0) continue;
 
       const commissionLost = isDelivery ? net * commission : 0;
       const trueNet        = isDelivery ? net * (1 - commission) : net;
       const modifiers      = (li.modifiers || []).map(m => m.name).filter(Boolean).join(', ');
-      const key            = `${name}|||${variation}|||${channelType}`;
+      const normMods       = modifiers ? modifiers.split(',').map(s => s.trim()).sort().join('|') : '';
+      // Include date in key so each day gets its own row
+      const key            = `${orderDate}|||${name}|||${variation}|||${channelType}|||${normMods}`;
 
       if (!itemMap[key]) {
         itemMap[key] = {
+          date: orderDate,
           squareName: name, variation, modifiers,
           channel: channelType, channelLabel,
           qty: 0, grossRevenue: 0, trueRevenue: 0, commissionLost: 0,
@@ -440,13 +712,13 @@ async function fetchFromSquare(from, to) {
     if (!resp.ok) throw new Error(data.error || 'Server error');
 
     const orders = data.orders || [];
-    if (!orders.length) { toast('No completed orders found in that date range.', 'warn'); return; }
+    if (!orders.length) { toast('No orders found in that date range.', 'warn'); return; }
 
     const salesData = parseSquareOrders(orders);
     if (!salesData.length) { toast('No sales line items found.', 'warn'); return; }
 
     if (!db.modifierLinks) db.modifierLinks = [];
-    pendingSalesImport = { file: { name: `Square API ${from} → ${to}` }, data: salesData, isSquare: true };
+    pendingSalesImport = { file: { name: `Square API ${from} → ${to}` }, data: salesData, isSquare: true, dateFrom: from, dateTo: to };
     document.getElementById('sales-ai-status').style.display = 'none';
     document.getElementById('sales-ai-content').innerHTML = '';
     renderSquareSalesReview(salesData);
@@ -514,8 +786,8 @@ function confidenceBadge(c) {
 // ── RENDER REVIEW MODAL ──────────────────────────────────────────────────────
 function renderSquareSalesReview(data) {
   const commission     = getDeliveryCommission();
-  const totalDineIn    = data.filter(r => r.channel === 'dinein').reduce((s, r) => s + r.trueRevenue, 0);
-  const totalDelivery  = data.filter(r => r.channel === 'delivery').reduce((s, r) => s + r.trueRevenue, 0);
+  const totalDineIn    = data.filter(r => r.channel === 'square').reduce((s, r) => s + r.trueRevenue, 0);
+  const totalDelivery  = data.filter(r => r.channel === 'doshii').reduce((s, r) => s + r.trueRevenue, 0);
   const totalCommLost  = data.reduce((s, r) => s + r.commissionLost, 0);
   const matched        = data.filter(r => r.menuItemId).length;
   const unmatched      = data.length - matched;
@@ -541,11 +813,11 @@ function renderSquareSalesReview(data) {
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
       <div class="stat" style="padding:10px">
         <div class="stat-val" style="font-size:1.1rem;color:var(--accent2)">$${fmt(totalDineIn)}</div>
-        <div class="stat-label">Dine-in Net Sales</div>
+        <div class="stat-label">Square Net Sales</div>
       </div>
       <div class="stat" style="padding:10px">
         <div class="stat-val" style="font-size:1.1rem;color:var(--accent2)">$${fmt(totalDelivery)}</div>
-        <div class="stat-label">Delivery Net (after ${(commission*100).toFixed(0)}% comm.)</div>
+        <div class="stat-label">Doshii Net (after ${(commission*100).toFixed(0)}% comm.)</div>
       </div>
       <div class="stat" style="padding:10px">
         <div class="stat-val" style="font-size:1.1rem;color:var(--accent2)">$${fmt(totalDineIn + totalDelivery)}</div>
@@ -592,7 +864,7 @@ function renderSquareSalesReview(data) {
                 ${r.variation ? `<div class="muted">Variation: ${r.variation}</div>` : ''}
               </td>
               <td style="color:var(--accent);font-size:.75rem">${r.modifiers || '—'}</td>
-              <td><span class="badge ${r.channel === 'dinein' ? 'bg' : 'bp'}">${r.channelLabel}</span></td>
+              <td><span class="badge ${r.channel === 'square' ? 'bg' : 'bp'}">${r.channelLabel}</span></td>
               <td>${r.qty}</td>
               <td><strong style="color:var(--accent2)">$${fmt(r.trueRevenue)}</strong></td>
               <td>${confidenceBadge(r.matchConfidence)}</td>
@@ -640,10 +912,21 @@ function updateModifierLink(field, modName, val) {
 
 // ── APPROVE SALES IMPORT ──────────────────────────────────────────────────────
 function approveSalesImport() {
-  const { data, isSquare } = pendingSalesImport;
+  const { data, isSquare, dateFrom, dateTo } = pendingSalesImport;
+
+  // Deduplication: check if we already imported this date range
+  if (isSquare && dateFrom && dateTo) {
+    const alreadyImported = db.sales.some(s => s.squareDateFrom === dateFrom && s.squareDateTo === dateTo);
+    if (alreadyImported) {
+      if (!confirm(`Sales for ${dateFrom} → ${dateTo} have already been imported. Import again and create duplicates?`)) return;
+    }
+  }
 
   // Save modifier costs to db
   saveDB();
+
+  // saleDate used as fallback for CSV imports (no per-row date)
+  const saleDate = dateFrom || todayStr();
 
   let imported = 0, linkedCount = 0, totalRev = 0;
 
@@ -683,7 +966,9 @@ function approveSalesImport() {
 
       db.sales.push({
         id:             uid(),
-        date:           todayStr(),
+        date:           r.date || saleDate,
+        squareDateFrom: dateFrom || null,
+        squareDateTo:   dateTo   || null,
         itemId:         menuItem.id,
         qty:            r.qty,
         revenue:        rev,
@@ -708,7 +993,7 @@ function approveSalesImport() {
       const rev = (r.selling_price||0) * r.qty_sold; totalRev += rev;
       const rec  = db.recipes.find(x => x.id === m.recipeId);
       const snap = rec ? calcRecipeCost(rec.lines, true) : 0;
-      db.sales.push({ id: uid(), date: todayStr(), itemId: m.id, qty: r.qty_sold, revenue: rev, snapshotCost: snap, channel: 'dinein', channelLabel: 'Dine-in' });
+      db.sales.push({ id: uid(), date: todayStr(), itemId: m.id, qty: r.qty_sold, revenue: rev, snapshotCost: snap, channel: 'square', channelLabel: 'Square' });
       imported++;
     });
   }
@@ -1018,19 +1303,20 @@ function approveInvoiceImport() {
     const baseUnits = getBaseUnits(r.buy_qty, r.pack_count, r.pack_size, r.pack_unit, r.buy_unit);
     const price = parseFloat(r.total_price)||0; totalVal += price;
     if (!ing.purchases) ing.purchases = [];
-    ing.purchases.push({ id: uid(), date: todayStr(), supplierId: wiz.supplierId,
+    ing.purchases.push({ id: uid(), date: wiz.invoiceDate || todayStr(), supplierId: wiz.supplierId,
+      invoiceNo: wiz.file.name || null,
       buyUnit: r.buy_unit, buyQty: r.buy_qty, packCount: r.pack_count||null,
       packSize: r.pack_size||null, packUnit: r.pack_unit||'g',
       totalPrice: price, cpru: cpu, baseUnits, obsolete: false });
     recalcWAC(ing);
   });
   const skippedNames = wiz.matched.filter(r => !r.userIngredientId).map(r => r.name);
-  db.importLog.push({ id: uid(), date: todayStr(), filename: wiz.file.name, type: 'invoice',
+  db.importLog.push({ id: uid(), date: wiz.invoiceDate || todayStr(), filename: wiz.file.name, invoiceNo: wiz.file.name, type: 'invoice',
     supplierId: wiz.supplierId, supplierName: sup?.name||'',
     itemCount: wiz.extracted.length, matchedCount: matched.length,
     skippedItems: skippedNames, totalValue: totalVal, status: 'approved',
     data: JSON.parse(JSON.stringify(wiz.matched)) });
-  saveDB(); closeModal('modal-invoice-wizard'); renderIngredients(); renderImportLog();
+  saveDB(); closeModal('modal-invoice-wizard'); renderIngredients(); renderImportLog(); renderCSVQueue();
   toast(`Invoice imported: ${matched.length} WAC updated${skippedNames.length ? ' | '+skippedNames.length+' skipped' : ''}.`);
 
   // If this invoice came from the Gmail queue, mark it as imported
@@ -1171,12 +1457,96 @@ function reOpenImport(id) {
 
 // ── AI PROMPTS ───────────────────────────────────────────────────────────────
 function invoiceExtractPrompt(text) {
+  const sup = db.suppliers.find(s => s.id === wiz.supplierId);
+  if (sup && sup.name.toLowerCase().includes('bidfood')) return invoiceExtractPromptBidfood(text);
   return `Extract all product/ingredient line items from this supplier invoice. Return ONLY a valid JSON array, no markdown.
 Each object: name(string), buy_unit(string: carton/case/bag/box/each/dozen/kg/L/lb/g/ml), buy_qty(number), total_price(number for this line), pack_count(number or null), pack_size(number or null), pack_unit(string: g/ml/kg/L), recipe_unit(string: g/ml/each), notes(string or "").
 Examples:
 "1 carton 6×800g cans @ $36" → {buy_unit:"carton",buy_qty:1,total_price:36,pack_count:6,pack_size:800,pack_unit:"g",recipe_unit:"g"}
 "5kg flour $12" → {buy_unit:"kg",buy_qty:5,total_price:12,pack_count:null,pack_size:null,pack_unit:"g",recipe_unit:"g"}
 ${text ? 'FILE:\n' + text.slice(0, 5000) : ''}`;
+}
+
+function invoiceExtractPromptBidfood(text) {
+  return `You are extracting line items from a Bidfood (Malaga, WA) supplier invoice into a structured format for a restaurant ingredient WAC (Weighted Average Cost) system.
+
+For each line item, extract these fields:
+- Buy Unit
+- Qty
+- Total Price ($)
+- Pack Count
+- Pack Size
+- Pack Unit
+
+---
+
+RULES FOR EACH FIELD:
+
+**Buy Unit:**
+Determine based on what was actually received — do NOT default to "carton":
+- Use "carton" only when a full sealed carton was purchased (i.e. Cartons Supplied column is filled AND CTN count > 1, meaning multiple packs are inside e.g. CTN=5, CTN=2)
+- Use "each" when individual loose units were purchased (i.e. Units Supplied column is filled, meaning single packs pulled from a carton e.g. 1x720g, 2x1kg)
+- Use "drum" for drum containers (e.g. oil in DRUM=1)
+- Use "each" for any other individual unit not fitting above
+
+**Qty:**
+- If Buy Unit = "carton": Qty = number in Cartons Supplied column
+- If Buy Unit = "each": Qty = number in Units Supplied column
+- If Buy Unit = "drum": Qty = number in Units Supplied column
+- Qty always refers to how many Buy Units were purchased
+
+**Total Price ($):**
+- Use the "Total Value" column for that line item exactly as printed
+- Do NOT calculate — read directly from invoice
+
+**Pack Count:**
+- If Buy Unit = "carton": Pack Count = the CTN= number (e.g. CTN=5 → Pack Count=5, CTN=2 → Pack Count=2)
+- If Buy Unit = "each" or "drum": Pack Count = 1 (you are buying a single pack/unit)
+
+**Pack Size:**
+- Extract the numeric size of each individual pack
+- Examples: "1kg" → 1, "720gr" → 720, "20lt" → 20, "5kg" → 5, "500gr" → 500, "3.03kg" → 3.03, "350gr" → 350, "2kg" → 2
+- For multi-pack formats like "6x2kg": Pack Size = 2 (the individual pack size, Pack Count handles the quantity)
+
+**Pack Unit:**
+- Extract the unit of measure for Pack Size
+- "gr" or "g" on invoice → use "g"
+- "lt" on invoice → use "lt"
+- "kg" on invoice → use "kg"
+
+---
+
+REFERENCE EXAMPLES (verified correct extractions from past invoices):
+
+| Product | Buy Unit | Qty | Total Price ($) | Pack Count | Pack Size | Pack Unit |
+|---|---|---|---|---|---|---|
+| CHICKEN NUGGETS BREAST CRUMBED INGHAM 1kg | carton | 1 | 72.45 | 5 | 1 | kg |
+| ANCHOVIES SANDHURST 720gr | each | 1 | 16.99 | 1 | 720 | g |
+| CHEESE MASCARPONE TATUA 1kg | each | 2 | 35.26 | 1 | 1 | kg |
+| CHEESE PARMESAN GRATED BLEND DAIRY FARM 1kg | each | 1 | 18.66 | 1 | 1 | kg |
+| CHEESE PARMESAN SHAVED ALFINAS 1kg | each | 1 | 23.02 | 1 | 1 | kg |
+| OIL VEGETABLE SELESTA 20lt | drum | 1 | 66.47 | 1 | 20 | lt |
+| PASTA SPAGHETTI NO 5 SAN REMO 5kg | carton | 1 | 27.06 | 2 | 5 | kg |
+| PEPPER BLACK CRACKED CULPEPERS 1kg | each | 1 | 34.27 | 1 | 1 | kg |
+| CHIPS 9MM SKIN ON SURE CRISP FRIES MCCAIN 6x2kg | carton | 1 | 69.00 | 6 | 2 | kg |
+| MARINARA SEAFOOD MIX SEAFROST 1kg | each | 3 | 47.40 | 1 | 1 | kg |
+| PASTA PENNE GLUTEN FREE SAN REMO 10x350gr | carton | 1 | 37.70 | 10 | 350 | g |
+| PINEAPPLE PIZZA CUT IN LIGHT SYRUP DEWFRESH 3.03kg | carton | 1 | 80.88 | 6 | 3.03 | kg |
+| SUGAR WHITE BUNDABERG 2kg | each | 1 | 5.95 | 1 | 2 | kg |
+| TOMATO PASTE LEGGOS 500gr | carton | 1 | 33.84 | 6 | 500 | g |
+
+---
+
+IMPORTANT REMINDERS:
+- Never assume Buy Unit is always "carton"
+- Always check BOTH the Cartons Supplied AND Units Supplied columns
+- Total Price is read directly from invoice, never calculated
+- Skip summary rows, carton count rows, and GST rows
+- Only extract actual product line items
+
+Return ONLY a valid JSON array, no markdown. Each object must have: name(string), buy_unit(string), buy_qty(number), total_price(number), pack_count(number or null), pack_size(number or null), pack_unit(string), recipe_unit(string: g/ml/each), notes(string or "").
+
+${text ? 'INVOICE:\n' + text.slice(0, 6000) : ''}`;
 }
 
 function toB64(file) {

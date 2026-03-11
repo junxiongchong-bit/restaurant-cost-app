@@ -1,5 +1,5 @@
 // ── APP STATE ──────────────────────────────────────────────────────────────
-let editId = null, recipeLines = [], detailIngId = null;
+let editId = null, recipeLines = [], detailIngId = null, editPurId = null;
 let wiz = { file: null, supplierId: '', extracted: [], matched: [], step: 1 };
 let pendingSalesImport = null;
 

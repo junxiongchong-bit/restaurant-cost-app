@@ -5,6 +5,7 @@ function calcCPU(price, qty, packCount, packSize, packUnit, buyUnit) {
   if(pc > 0 && ps > 0) {
     let sz = ps;
     if(packUnit === 'kg' || packUnit === 'L') sz *= 1000;
+    // 'each' pack unit: sz stays as-is (1 each = 1 base unit)
     const t = bq * pc * sz;
     return t > 0 ? bp / t : null;
   }
@@ -154,6 +155,10 @@ function openIngDetail(id) {
   document.getElementById('pur-buy-unit').value = 'each';
   document.getElementById('pur-pack-unit').value = 'g';
   document.getElementById('pur-wac-preview').style.display = 'none';
+  editPurId = null;
+  document.getElementById('pur-form-title').textContent = '+ Add New Purchase';
+  document.getElementById('pur-cancel-edit').style.display = 'none';
+  document.getElementById('pur-save-btn').textContent = 'Add Purchase & Update WAC';
   renderIngDetailTop(ing);
   renderPurchaseHistory(ing);
   openModal('modal-ing-detail');
@@ -207,25 +212,49 @@ function renderPurchaseHistory(ing) {
   if(!(ing.purchases||[]).length) {
     el.innerHTML = '<div class="muted" style="padding:12px">No purchases yet.</div>'; return;
   }
+
+  // Variance hint: flag active purchases whose cpru deviates >20% from WAC
+  const wac = ing.wac || 0;
+  const THRESHOLD = 0.20;
+
   const reversed = [...ing.purchases].reverse();
   el.innerHTML = `<table>
-    <thead><tr><th>Date</th><th>Supplier</th><th>Qty/Unit</th><th>Pack Detail</th><th>Total $</th><th>Cost/${ing.recipeUnit}</th><th>Status</th><th>Action</th></tr></thead>
-    <tbody>${reversed.map((p, ri) => {
+    <thead><tr><th>Date</th><th>Invoice</th><th>Supplier</th><th>Qty/Unit</th><th>Pack Detail</th><th>Total $</th><th>Cost/${ing.recipeUnit}</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody>${reversed.map((p) => {
       const realIdx = ing.purchases.findIndex(x => x.id === p.id);
+
+      let cpruCell;
+      if(p.cpru != null) {
+        const variance = wac > 0 ? (p.cpru - wac) / wac : 0;
+        const pct      = (variance * 100).toFixed(1);
+        const over     = !p.obsolete && Math.abs(variance) > THRESHOLD;
+        const color    = over ? (variance > 0 ? 'var(--danger)' : 'var(--accent2)') : 'var(--accent2)';
+        const hint     = over
+          ? ` <span title="${variance > 0 ? 'Above' : 'Below'} WAC by ${Math.abs(pct)}%" style="cursor:default;font-size:.75rem;color:${color}">⚠ ${variance > 0 ? '+' : ''}${pct}%</span>`
+          : '';
+        cpruCell = `<td style="color:${color}">${p.cpru.toFixed(5)}${hint}</td>`;
+      } else {
+        cpruCell = `<td style="color:var(--accent2)">—</td>`;
+      }
+
       return `<tr class="${p.obsolete ? 'obs-row' : ''}">
         <td>${p.date}</td>
+        <td style="color:var(--muted);font-size:.8rem">${p.invoiceNo || '—'}</td>
         <td>${supName(p.supplierId)}</td>
         <td>${p.buyQty||1} ${p.buyUnit||''}</td>
         <td>${p.packCount && p.packSize ? `${p.packCount}×${p.packSize}${p.packUnit}` : '—'}</td>
         <td>${fmt(p.totalPrice)}</td>
-        <td style="color:var(--accent2)">${p.cpru != null ? p.cpru.toFixed(5) : '—'}</td>
+        ${cpruCell}
         <td>${p.obsolete
           ? '<span class="badge bobs">Obsolete</span>'
           : '<span class="badge bg">Active</span>'}</td>
-        <td>${p.obsolete
-          ? `<button class="btn btn-ghost btn-sm" onclick="toggleObsoleteByIdx(${realIdx},false)">Reactivate</button>`
-          : `<button class="btn btn-warn btn-sm" onclick="toggleObsoleteByIdx(${realIdx},true)">Mark Obsolete</button>`
-        }</td>
+        <td>
+          ${p.obsolete
+            ? `<button class="btn btn-ghost btn-sm" onclick="toggleObsoleteByIdx(${realIdx},false)">Reactivate</button>`
+            : `<button class="btn btn-warn btn-sm" onclick="toggleObsoleteByIdx(${realIdx},true)">Mark Obsolete</button>`
+          }
+          <button class="btn btn-ghost btn-sm" onclick="editPurchase('${p.id}')">Edit</button>
+        </td>
       </tr>`;
     }).join('')}
     </tbody></table>`;
@@ -275,6 +304,38 @@ function calcPurWAC() {
   }
 }
 
+function editPurchase(purId) {
+  const ing = db.ingredients.find(x => x.id === detailIngId); if(!ing) return;
+  const p = ing.purchases.find(x => x.id === purId); if(!p) return;
+  editPurId = purId;
+  document.getElementById('pur-date').value = p.date || todayStr();
+  document.getElementById('pur-invoice-no').value = p.invoiceNo || '';
+  populateSupSel('pur-sup', p.supplierId || '');
+  document.getElementById('pur-buy-unit').value = p.buyUnit || 'each';
+  document.getElementById('pur-qty').value = p.buyQty || 1;
+  document.getElementById('pur-pack-count').value = p.packCount || '';
+  document.getElementById('pur-pack-size').value = p.packSize || '';
+  document.getElementById('pur-pack-unit').value = p.packUnit || 'g';
+  document.getElementById('pur-price').value = p.totalPrice || '';
+  document.getElementById('pur-form-title').textContent = '✏ Edit Purchase';
+  document.getElementById('pur-cancel-edit').style.display = '';
+  document.getElementById('pur-save-btn').textContent = 'Update Purchase & Recalculate WAC';
+  calcPurWAC();
+  document.getElementById('pur-date').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function cancelEditPurchase() {
+  editPurId = null;
+  ['pur-qty','pur-pack-count','pur-pack-size','pur-price','pur-invoice-no'].forEach(x => document.getElementById(x).value = '');
+  document.getElementById('pur-date').value = todayStr();
+  document.getElementById('pur-buy-unit').value = 'each';
+  document.getElementById('pur-pack-unit').value = 'g';
+  document.getElementById('pur-wac-preview').style.display = 'none';
+  document.getElementById('pur-form-title').textContent = '+ Add New Purchase';
+  document.getElementById('pur-cancel-edit').style.display = 'none';
+  document.getElementById('pur-save-btn').textContent = 'Add Purchase & Update WAC';
+}
+
 function addPurchase() {
   const ing = db.ingredients.find(x => x.id === detailIngId); if(!ing) return;
   const bp = parseFloat(document.getElementById('pur-price').value)||0;
@@ -287,20 +348,44 @@ function addPurchase() {
   const cpu = calcCPU(bp, bq, pc, ps, pu, bu);
   if(!cpu) { toast('Cannot calculate cost — check pack details.', 'error'); return; }
   const baseUnits = getBaseUnits(bq, pc, ps, pu, bu);
-  const pur = { id: uid(), date: document.getElementById('pur-date').value||todayStr(),
-    supplierId: document.getElementById('pur-sup').value, buyUnit: bu, buyQty: bq,
-    packCount: parseFloat(pc)||null, packSize: parseFloat(ps)||null, packUnit: pu,
-    totalPrice: bp, cpru: cpu, baseUnits, obsolete: false };
-  if(!ing.purchases) ing.purchases = [];
-  ing.purchases.push(pur);
+  if(editPurId) {
+    const pur = ing.purchases.find(x => x.id === editPurId);
+    if(!pur) { toast('Purchase not found.', 'error'); return; }
+    pur.date = document.getElementById('pur-date').value || todayStr();
+    pur.supplierId = document.getElementById('pur-sup').value;
+    pur.invoiceNo = document.getElementById('pur-invoice-no').value.trim() || null;
+    pur.buyUnit = bu; pur.buyQty = bq;
+    pur.packCount = parseFloat(pc)||null; pur.packSize = parseFloat(ps)||null; pur.packUnit = pu;
+    pur.totalPrice = bp; pur.cpru = cpu; pur.baseUnits = baseUnits;
+    cancelEditPurchase();
+    toast('Purchase updated & WAC recalculated.');
+  } else {
+    const pur = { id: uid(), date: document.getElementById('pur-date').value||todayStr(),
+      supplierId: document.getElementById('pur-sup').value,
+      invoiceNo: document.getElementById('pur-invoice-no').value.trim() || null,
+      buyUnit: bu, buyQty: bq,
+      packCount: parseFloat(pc)||null, packSize: parseFloat(ps)||null, packUnit: pu,
+      totalPrice: bp, cpru: cpu, baseUnits, obsolete: false };
+    if(!ing.purchases) ing.purchases = [];
+    ing.purchases.push(pur);
+    ['pur-qty','pur-pack-count','pur-pack-size','pur-price'].forEach(x => document.getElementById(x).value = '');
+    document.getElementById('pur-wac-preview').style.display = 'none';
+    toast('Purchase added & WAC updated.');
+  }
   recalcWAC(ing);
   saveDB(); renderIngDetailTop(ing); renderPurchaseHistory(ing); renderIngredients();
-  ['pur-qty','pur-pack-count','pur-pack-size','pur-price'].forEach(x => document.getElementById(x).value = '');
-  document.getElementById('pur-wac-preview').style.display = 'none';
-  toast('Purchase added & WAC updated.');
 }
 
 const IMPACT_BADGE = { high: '<span class="badge" style="background:var(--danger);color:#fff">High</span>', medium: '<span class="badge" style="background:var(--warn);color:#000">Medium</span>', low: '<span class="badge bb">Low</span>' };
+
+// Returns the worst variance % among active purchases vs WAC, or 0 if none.
+function maxPurchaseVariance(ing) {
+  const wac = ing.wac || 0;
+  if(!wac) return 0;
+  return (ing.purchases||[])
+    .filter(p => !p.obsolete && p.cpru != null)
+    .reduce((max, p) => Math.max(max, Math.abs((p.cpru - wac) / wac)), 0);
+}
 
 function renderIngredients() {
   const q = (document.getElementById('ing-search')?.value||'').toLowerCase();
@@ -323,10 +408,16 @@ function renderIngredients() {
     tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:28px">No ingredients.</td></tr>'; return;
   }
   tb.innerHTML = rows.map(i => {
-    const eff = effectiveCost(i);
-    const sup = db.suppliers.find(s => s.id === i.supplierId);
+    const eff     = effectiveCost(i);
+    const sup     = db.suppliers.find(s => s.id === i.supplierId);
+    const maxVar  = maxPurchaseVariance(i);
+    const hasWarn = maxVar > 0.20;
+    const warnBadge = hasWarn
+      ? `<span title="Purchase cost variance ${(maxVar*100).toFixed(1)}% from WAC — review history"
+           style="display:inline-block;margin-left:6px;font-size:.72rem;color:var(--warn);cursor:default">⚠ ${(maxVar*100).toFixed(0)}% variance</span>`
+      : '';
     return `<tr>
-      <td><strong>${i.name}</strong>${sup ? `<div class="muted">${sup.name}</div>` : ''}${i.costImpact ? `<div style="margin-top:2px">${IMPACT_BADGE[i.costImpact]||''}</div>` : ''}</td>
+      <td><strong>${i.name}</strong>${i.costImpact ? ` ${IMPACT_BADGE[i.costImpact]||''}` : ''}${warnBadge}${sup ? `<div class="muted">${sup.name}</div>` : ''}</td>
       <td>${i.category ? `<span class="badge bb">${i.category}</span>` : '—'}</td>
       <td><span class="badge ${(i.yield||100)<100?'bw':'bg'}">${i.yield||100}%</span></td>
       <td style="color:var(--accent2)">$${(i.wac||0).toFixed(5)}</td>
@@ -334,7 +425,7 @@ function renderIngredients() {
       <td><span class="badge bb">${i.recipeUnit}</span></td>
       <td>${(i.purchases||[]).filter(p=>!p.obsolete).length} active / ${(i.purchases||[]).length} total</td>
       <td class="flex">
-        <button class="btn btn-ghost btn-sm" onclick="openIngDetail('${i.id}')">History</button>
+        <button class="btn ${hasWarn ? 'btn-warn' : 'btn-ghost'} btn-sm" onclick="openIngDetail('${i.id}')">History${hasWarn ? ' ⚠' : ''}</button>
         <button class="btn btn-danger btn-sm" onclick="deleteIngredient('${i.id}')">Del</button>
       </td>
     </tr>`;

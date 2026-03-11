@@ -99,7 +99,7 @@ const pctCls = p => p < 30 ? 'bg' : p < 40 ? 'bw' : 'br';
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 const BUY_UNITS  = ['carton','case','bag','box','each','dozen','kg','L','lb','g','ml'];
-const PACK_UNITS = ['g','ml','kg','L'];
+const PACK_UNITS = ['g','ml','kg','L','each'];
 
 function buyUnitSel(sel='each', id='') {
   return `<select${id ? ' id="'+id+'"' : ''}>${BUY_UNITS.map(u => `<option${u===sel?' selected':''}>${u}</option>`).join('')}</select>`;
